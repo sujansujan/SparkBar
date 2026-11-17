@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -21,19 +22,26 @@ public sealed class PopupActionItem
     public bool ForceText { get; init; }
     public bool Accent { get; init; }
     public int Group { get; init; }
+    /// <summary>
+    /// True if this action is directly relevant to the current selection (placed in the lower row closest to the cursor in 2-layer mode).
+    /// </summary>
+    public bool IsPrimaryRelevant { get; init; }
     public Action OnClick { get; init; }
     public Action OnRightClick { get; init; }
 }
 
 /// <summary>
-/// Pre-warmed, persistent floating toolbar window using native Windows 11 DWM hardware rounded corners &amp; shadow.
-/// Zero AllowsTransparency or DropShadowEffect overhead -> instant popup and minimal RAM!
+/// Pre-warmed, persistent floating toolbar window supporting 4 sharp size presets (mini, compact, normal, large)
+/// and a 2-layer smart context deck (lower row = relevant actions near cursor, upper row = secondary utilities).
 /// </summary>
 internal sealed class PopupToolbarWindow : Window
 {
     private readonly ConfigService _cfg;
     private readonly Border _card;
-    private readonly StackPanel _row;
+    private readonly StackPanel _deckPanel;
+    private readonly StackPanel _upperRow;
+    private readonly Border _layerDivider;
+    private readonly StackPanel _lowerRow;
     private readonly Border _topHighlight;
     private readonly DispatcherTimer _autoHideTimer;
     private readonly Dictionary<string, Action> _hintMap = new(StringComparer.OrdinalIgnoreCase);
@@ -60,6 +68,64 @@ internal sealed class PopupToolbarWindow : Window
         fn?.Invoke();
     }
 
+    private readonly record struct SizeMetrics(
+        double BtnHeight,
+        double IconMinWidth,
+        double PillMinWidth,
+        double IconFontSize,
+        double TextFontSize,
+        double FavTileSize,
+        double FavImgSize,
+        double SwatchSize,
+        double SepHeight,
+        double BtnCornerRadius,
+        double TextPadX,
+        Thickness CardPadding,
+        Thickness BtnMargin,
+        bool SmallWindowCorners);
+
+    private SizeMetrics GetMetrics()
+    {
+        return (_cfg.PopupSize ?? "compact").ToLowerInvariant() switch
+        {
+            "mini" => new SizeMetrics(
+                BtnHeight: 22, IconMinWidth: 25, PillMinWidth: 28,
+                IconFontSize: 12, TextFontSize: 11,
+                FavTileSize: 18, FavImgSize: 14, SwatchSize: 13, SepHeight: 12,
+                BtnCornerRadius: 5, TextPadX: 7,
+                CardPadding: new Thickness(3, 3, 3, 3),
+                BtnMargin: new Thickness(1, 0, 1, 0),
+                SmallWindowCorners: true),
+
+            "normal" => new SizeMetrics(
+                BtnHeight: 30, IconMinWidth: 34, PillMinWidth: 38,
+                IconFontSize: 14.5, TextFontSize: 12.5,
+                FavTileSize: 24, FavImgSize: 18, SwatchSize: 17, SepHeight: 16,
+                BtnCornerRadius: 6.5, TextPadX: 9,
+                CardPadding: new Thickness(4, 4, 4, 4),
+                BtnMargin: new Thickness(1.5, 0, 1.5, 0),
+                SmallWindowCorners: false),
+
+            "large" => new SizeMetrics(
+                BtnHeight: 34, IconMinWidth: 38, PillMinWidth: 42,
+                IconFontSize: 16, TextFontSize: 13.5,
+                FavTileSize: 27, FavImgSize: 20, SwatchSize: 19, SepHeight: 18,
+                BtnCornerRadius: 7, TextPadX: 10,
+                CardPadding: new Thickness(5, 5, 5, 5),
+                BtnMargin: new Thickness(2, 0, 2, 0),
+                SmallWindowCorners: false),
+
+            _ => new SizeMetrics( // "compact" (default)
+                BtnHeight: 26, IconMinWidth: 29, PillMinWidth: 33,
+                IconFontSize: 13, TextFontSize: 11.5,
+                FavTileSize: 20, FavImgSize: 16, SwatchSize: 15, SepHeight: 14,
+                BtnCornerRadius: 5.5, TextPadX: 8,
+                CardPadding: new Thickness(3, 3.5, 3, 3.5),
+                BtnMargin: new Thickness(1, 0, 1, 0),
+                SmallWindowCorners: false)
+        };
+    }
+
     public PopupToolbarWindow(ConfigService cfg, Action<string, string> onReorder)
     {
         _cfg = cfg;
@@ -68,29 +134,59 @@ internal sealed class PopupToolbarWindow : Window
 
         W11WindowHelper.ConfigureDwmFlyoutChrome(this);
 
-        _row = new StackPanel
+        _upperRow = new StackPanel
         {
             Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
+
+        _layerDivider = new Border
+        {
+            Height = 1,
+            Margin = new Thickness(4, 2.5, 4, 2.5),
+            SnapsToDevicePixels = true,
+            Visibility = Visibility.Collapsed
+        };
+        RenderOptions.SetEdgeMode(_layerDivider, EdgeMode.Aliased);
+
+        _lowerRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        _deckPanel = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        _deckPanel.Children.Add(_upperRow);
+        _deckPanel.Children.Add(_layerDivider);
+        _deckPanel.Children.Add(_lowerRow);
 
         _topHighlight = new Border
         {
             Height = 1,
             VerticalAlignment = VerticalAlignment.Top,
             Background = new SolidColorBrush(pal.IsLight ? Colors.White : Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF)),
-            Margin = new Thickness(0, -5, 0, 0),
+            Margin = new Thickness(0, -4, 0, 0),
+            SnapsToDevicePixels = true,
             IsHitTestVisible = false
         };
+        RenderOptions.SetEdgeMode(_topHighlight, EdgeMode.Aliased);
 
         var innerGrid = new Grid();
         innerGrid.Children.Add(_topHighlight);
-        innerGrid.Children.Add(_row);
+        innerGrid.Children.Add(_deckPanel);
 
         _card = new Border
         {
-            Padding = new Thickness(4, 5, 4, 5),
+            Padding = new Thickness(3, 3.5, 3, 3.5),
             Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90),
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true,
             Child = innerGrid
         };
 
@@ -125,16 +221,24 @@ internal sealed class PopupToolbarWindow : Window
     public void PopulateActions(IReadOnlyList<PopupActionItem> actions)
     {
         var pal = _cfg.Palette;
-        if (Hwnd != IntPtr.Zero)
-            W11WindowHelper.ApplyDwmFlyoutAttributes(Hwnd, pal);
+        var m = GetMetrics();
 
+        if (Hwnd != IntPtr.Zero)
+            W11WindowHelper.ApplyDwmFlyoutAttributes(Hwnd, pal, smallCorners: m.SmallWindowCorners);
+
+        _card.Padding = m.CardPadding;
         _card.Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90);
         _topHighlight.Background = new SolidColorBrush(pal.IsLight ? Colors.White : Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
+        _layerDivider.Background = new SolidColorBrush(Color.FromArgb(150, pal.Separator.R, pal.Separator.G, pal.Separator.B));
 
-        _row.Children.Clear();
+        _upperRow.Children.Clear();
+        _lowerRow.Children.Clear();
         _visibleTips.Clear();
         _hintMap.Clear();
         _buttonEntries.Clear();
+
+        foreach (var a in actions)
+            _visibleTips.Add(a.Tip);
 
         var textBrush = new SolidColorBrush(pal.Text);
         var accentTextBrush = new SolidColorBrush(pal.AccentText);
@@ -148,259 +252,299 @@ internal sealed class PopupToolbarWindow : Window
         var iconFont = new FontFamily(_cfg.IconFontFamily);
         var textFont = new FontFamily("Segoe UI Variable Text, Segoe UI");
 
-        int prevGrp = -1;
-        for (int i = 0; i < actions.Count; i++)
+        int hintCounter = 1;
+
+        void PopulateRow(StackPanel targetRow, IReadOnlyList<PopupActionItem> rowActions)
         {
-            var act = actions[i];
-            int idx = i + 1;
-            string hint = SmartParser.HintForIndex(idx);
-
-            _visibleTips.Add(act.Tip);
-            if (act.OnClick != null)
-                _hintMap[hint] = act.OnClick;
-
-            if (prevGrp != -1 && act.Group != prevGrp)
+            int prevGrp = -1;
+            for (int i = 0; i < rowActions.Count; i++)
             {
-                _row.Children.Add(new Border
+                var act = rowActions[i];
+                string hint = SmartParser.HintForIndex(hintCounter++);
+                if (act.OnClick != null)
+                    _hintMap[hint] = act.OnClick;
+
+                if (prevGrp != -1 && act.Group != prevGrp)
                 {
-                    Width = 1,
-                    Height = 18,
-                    Background = sepBrush,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(3, 0, 3, 0)
-                });
-            }
-            prevGrp = act.Group;
-
-            bool useIcon = !act.ForceText && _cfg.GetActionDisplay(act.Tip) == "icon";
-            string labelShown = useIcon
-                ? act.Glyph
-                : (!string.IsNullOrEmpty(act.ShortLabel) ? act.ShortLabel : act.Tip);
-            bool isIconFont = useIcon && act.IsIconGlyph;
-
-            var btnGrid = new Grid
-            {
-                MinWidth = useIcon ? 36 : 40,
-                MaxWidth = 220,
-                Height = 32
-            };
-
-            if (act.SwatchColor.HasValue)
-            {
-                btnGrid.Children.Add(new Border
-                {
-                    Width = 18,
-                    Height = 18,
-                    CornerRadius = new CornerRadius(5),
-                    Background = new SolidColorBrush(act.SwatchColor.Value),
-                    BorderBrush = new SolidColorBrush(pal.IsLight ? Color.FromRgb(0x47, 0x55, 0x69) : Colors.White),
-                    BorderThickness = new Thickness(1),
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                });
-            }
-            else if (useIcon && act.Image != null)
-            {
-                var tile = new Border
-                {
-                    Width = 26,
-                    Height = 26,
-                    CornerRadius = new CornerRadius(6),
-                    Background = new SolidColorBrush(pal.FaviconTile),
-                    BorderBrush = new SolidColorBrush(pal.IsLight ? Color.FromRgb(0xCB, 0xD5, 0xE1) : Color.FromRgb(0x32, 0x38, 0x4C)),
-                    BorderThickness = new Thickness(1),
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                var img = new Image
-                {
-                    Width = 20,
-                    Height = 20,
-                    Source = act.Image,
-                    Stretch = Stretch.Uniform
-                };
-                RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
-                tile.Child = img;
-                btnGrid.Children.Add(tile);
-            }
-            else
-            {
-                var tb = new TextBlock
-                {
-                    Text = labelShown,
-                    FontFamily = isIconFont ? iconFont : textFont,
-                    FontWeight = isIconFont ? FontWeights.Normal : (act.Accent ? FontWeights.Bold : FontWeights.SemiBold),
-                    FontSize = isIconFont ? 15 : 13,
-                    Foreground = act.Accent ? accentTextBrush : textBrush,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                    Margin = useIcon ? new Thickness(0) : new Thickness(10, 0, 10, 0)
-                };
-                btnGrid.Children.Add(tb);
-            }
-
-            var bottomBar = new Border
-            {
-                Width = 12,
-                Height = 2,
-                CornerRadius = new CornerRadius(1),
-                Background = accentBarBrush,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Visibility = Visibility.Hidden
-            };
-            btnGrid.Children.Add(bottomBar);
-
-            if (_cfg.ShowHintBadges)
-            {
-                btnGrid.Children.Add(new TextBlock
-                {
-                    Text = hint,
-                    FontFamily = textFont,
-                    FontWeight = FontWeights.SemiBold,
-                    FontSize = 8.5,
-                    Foreground = new SolidColorBrush(Color.FromArgb(200, pal.SubText.R, pal.SubText.G, pal.SubText.B)),
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    VerticalAlignment = VerticalAlignment.Bottom,
-                    Margin = new Thickness(0, 0, 2, 1)
-                });
-            }
-
-            var btnBorder = new Border
-            {
-                CornerRadius = new CornerRadius(7),
-                BorderThickness = new Thickness(1),
-                Margin = new Thickness(2, 0, 2, 0),
-                Cursor = Cursors.Hand,
-                Child = btnGrid
-            };
-
-            void ApplyNormalVisual(bool hovered, bool pressed)
-            {
-                bottomBar.Visibility = hovered ? Visibility.Visible : Visibility.Hidden;
-                btnGrid.RenderTransform = pressed ? new TranslateTransform(0, 1) : Transform.Identity;
-
-                if (act.Accent)
-                {
-                    Color topC = pal.IsLight
-                        ? (hovered ? Color.FromRgb(0xDB, 0xEA, 0xFE) : Color.FromRgb(0xEF, 0xF6, 0xFF))
-                        : (hovered ? Color.FromRgb(0x1E, 0x3A, 0x5F) : Color.FromRgb(0x17, 0x2B, 0x46));
-                    Color botC = pal.IsLight
-                        ? (hovered ? Color.FromRgb(0xBF, 0xDB, 0xFE) : Color.FromRgb(0xDB, 0xEA, 0xFE))
-                        : (hovered ? Color.FromRgb(0x17, 0x2B, 0x46) : Color.FromRgb(0x12, 0x22, 0x38));
-                    Color rimC = pal.IsLight
-                        ? (hovered ? Color.FromRgb(0x25, 0x63, 0xEB) : Color.FromRgb(0x60, 0xA5, 0xFA))
-                        : (hovered ? Color.FromRgb(0x60, 0xA5, 0xFA) : Color.FromRgb(0x3B, 0x82, 0xF6));
-                    btnBorder.Background = new LinearGradientBrush(topC, botC, 90);
-                    btnBorder.BorderBrush = new SolidColorBrush(rimC);
+                    var vSep = new Border
+                    {
+                        Width = 1,
+                        Height = m.SepHeight,
+                        Background = sepBrush,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        SnapsToDevicePixels = true,
+                        Margin = new Thickness(2.5, 0, 2.5, 0)
+                    };
+                    RenderOptions.SetEdgeMode(vSep, EdgeMode.Aliased);
+                    targetRow.Children.Add(vSep);
                 }
-                else if (pressed)
+                prevGrp = act.Group;
+
+                bool useIcon = !act.ForceText && _cfg.GetActionDisplay(act.Tip) == "icon";
+                string labelShown = useIcon
+                    ? act.Glyph
+                    : (!string.IsNullOrEmpty(act.ShortLabel) ? act.ShortLabel : act.Tip);
+                bool isIconFont = useIcon && act.IsIconGlyph;
+
+                var btnGrid = new Grid
                 {
-                    btnBorder.Background = surfaceBrush;
-                    btnBorder.BorderBrush = sepBrush;
+                    MinWidth = useIcon ? m.IconMinWidth : m.PillMinWidth,
+                    MaxWidth = 200,
+                    Height = m.BtnHeight,
+                    SnapsToDevicePixels = true,
+                    UseLayoutRounding = true
+                };
+
+                if (act.SwatchColor.HasValue)
+                {
+                    btnGrid.Children.Add(new Border
+                    {
+                        Width = m.SwatchSize,
+                        Height = m.SwatchSize,
+                        CornerRadius = new CornerRadius(4),
+                        Background = new SolidColorBrush(act.SwatchColor.Value),
+                        BorderBrush = new SolidColorBrush(pal.IsLight ? Color.FromRgb(0x47, 0x55, 0x69) : Colors.White),
+                        BorderThickness = new Thickness(1),
+                        SnapsToDevicePixels = true,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    });
                 }
-                else if (hovered)
+                else if (useIcon && act.Image != null)
                 {
-                    btnBorder.Background = hoverBg;
-                    btnBorder.BorderBrush = hoverBorder;
-                }
-                else if (!useIcon && !act.SwatchColor.HasValue)
-                {
-                    btnBorder.Background = pillFill;
-                    btnBorder.BorderBrush = pillBorder;
+                    var tile = new Border
+                    {
+                        Width = m.FavTileSize,
+                        Height = m.FavTileSize,
+                        CornerRadius = new CornerRadius(5),
+                        Background = new SolidColorBrush(pal.FaviconTile),
+                        BorderBrush = new SolidColorBrush(pal.IsLight ? Color.FromRgb(0xCB, 0xD5, 0xE1) : Color.FromRgb(0x32, 0x38, 0x4C)),
+                        BorderThickness = new Thickness(1),
+                        SnapsToDevicePixels = true,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    var img = new Image
+                    {
+                        Width = m.FavImgSize,
+                        Height = m.FavImgSize,
+                        Source = act.Image,
+                        Stretch = Stretch.Uniform,
+                        SnapsToDevicePixels = true
+                    };
+                    RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
+                    tile.Child = img;
+                    btnGrid.Children.Add(tile);
                 }
                 else
                 {
-                    btnBorder.Background = Brushes.Transparent;
-                    btnBorder.BorderBrush = Brushes.Transparent;
-                }
-            }
-
-            ApplyNormalVisual(false, false);
-
-            btnBorder.MouseEnter += (_, _) =>
-            {
-                ResetAutoHide();
-                ApplyNormalVisual(true, false);
-                if (!_isDragging)
-                    ShowHoverTooltipFor(btnBorder, act.Tip, hint);
-            };
-
-            btnBorder.MouseLeave += (_, _) =>
-            {
-                ApplyNormalVisual(false, false);
-                if (!_isDragging)
-                    _hoverTip.HideTip();
-            };
-
-            btnBorder.MouseLeftButtonDown += (_, e) =>
-            {
-                e.Handled = true;
-                ApplyNormalVisual(true, true);
-                _dragItem = act;
-                _dragStartScreen = PointToScreen(e.GetPosition(this));
-                _isDragging = false;
-                btnBorder.CaptureMouse();
-            };
-
-            btnBorder.MouseMove += (_, e) =>
-            {
-                if (_dragItem != act || e.LeftButton != MouseButtonState.Pressed) return;
-                Point curScreen = PointToScreen(e.GetPosition(this));
-                if (!_isDragging)
-                {
-                    if (Math.Abs(curScreen.X - _dragStartScreen.X) + Math.Abs(curScreen.Y - _dragStartScreen.Y) < _cfg.MinDragPx)
-                        return;
-                    _isDragging = true;
-                }
-                var target = HitTestButtonAtScreen(curScreen);
-                string dragLabel = target != null && target.Tip != act.Tip
-                    ? $"Move '{act.Tip}' before '{target.Tip}'"
-                    : $"Dragging: {act.Tip}";
-                ShowHoverTooltipFor(btnBorder, dragLabel, "");
-            };
-
-            btnBorder.MouseLeftButtonUp += (_, e) =>
-            {
-                e.Handled = true;
-                if (btnBorder.IsMouseCaptured)
-                    btnBorder.ReleaseMouseCapture();
-                ApplyNormalVisual(btnBorder.IsMouseOver, false);
-
-                if (_dragItem == act)
-                {
-                    bool wasDrag = _isDragging;
-                    _dragItem = null;
-                    _isDragging = false;
-
-                    if (wasDrag)
+                    var tb = new TextBlock
                     {
-                        Point curScreen = PointToScreen(e.GetPosition(this));
-                        var target = HitTestButtonAtScreen(curScreen);
-                        _hoverTip.HideTip();
-                        if (target != null && target.Tip != act.Tip)
-                            _onReorder?.Invoke(act.Tip, target.Tip);
-                        return;
+                        Text = labelShown,
+                        FontFamily = isIconFont ? iconFont : textFont,
+                        FontWeight = isIconFont ? FontWeights.Normal : (act.Accent ? FontWeights.Bold : FontWeights.SemiBold),
+                        FontSize = isIconFont ? m.IconFontSize : m.TextFontSize,
+                        Foreground = act.Accent ? accentTextBrush : textBrush,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        SnapsToDevicePixels = true,
+                        Margin = useIcon ? new Thickness(0) : new Thickness(m.TextPadX, 0, m.TextPadX, 0)
+                    };
+                    TextOptions.SetTextFormattingMode(tb, TextFormattingMode.Display);
+                    btnGrid.Children.Add(tb);
+                }
+
+                var bottomBar = new Border
+                {
+                    Width = 10,
+                    Height = 2,
+                    CornerRadius = new CornerRadius(1),
+                    Background = accentBarBrush,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Bottom,
+                    Visibility = Visibility.Hidden
+                };
+                btnGrid.Children.Add(bottomBar);
+
+                if (_cfg.ShowHintBadges)
+                {
+                    btnGrid.Children.Add(new TextBlock
+                    {
+                        Text = hint,
+                        FontFamily = textFont,
+                        FontWeight = FontWeights.SemiBold,
+                        FontSize = 8,
+                        Foreground = new SolidColorBrush(Color.FromArgb(200, pal.SubText.R, pal.SubText.G, pal.SubText.B)),
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        VerticalAlignment = VerticalAlignment.Bottom,
+                        Margin = new Thickness(0, 0, 1.5, 0.5)
+                    });
+                }
+
+                var btnBorder = new Border
+                {
+                    CornerRadius = new CornerRadius(m.BtnCornerRadius),
+                    BorderThickness = new Thickness(1),
+                    Margin = m.BtnMargin,
+                    SnapsToDevicePixels = true,
+                    UseLayoutRounding = true,
+                    Cursor = Cursors.Hand,
+                    Child = btnGrid
+                };
+
+                void ApplyNormalVisual(bool hovered, bool pressed)
+                {
+                    bottomBar.Visibility = hovered ? Visibility.Visible : Visibility.Hidden;
+                    btnGrid.RenderTransform = pressed ? new TranslateTransform(0, 1) : Transform.Identity;
+
+                    if (act.Accent)
+                    {
+                        Color topC = pal.IsLight
+                            ? (hovered ? Color.FromRgb(0xDB, 0xEA, 0xFE) : Color.FromRgb(0xEF, 0xF6, 0xFF))
+                            : (hovered ? Color.FromRgb(0x1E, 0x3A, 0x5F) : Color.FromRgb(0x17, 0x2B, 0x46));
+                        Color botC = pal.IsLight
+                            ? (hovered ? Color.FromRgb(0xBF, 0xDB, 0xFE) : Color.FromRgb(0xDB, 0xEA, 0xFE))
+                            : (hovered ? Color.FromRgb(0x17, 0x2B, 0x46) : Color.FromRgb(0x12, 0x22, 0x38));
+                        Color rimC = pal.IsLight
+                            ? (hovered ? Color.FromRgb(0x25, 0x63, 0xEB) : Color.FromRgb(0x60, 0xA5, 0xFA))
+                            : (hovered ? Color.FromRgb(0x60, 0xA5, 0xFA) : Color.FromRgb(0x3B, 0x82, 0xF6));
+                        btnBorder.Background = new LinearGradientBrush(topC, botC, 90);
+                        btnBorder.BorderBrush = new SolidColorBrush(rimC);
+                    }
+                    else if (pressed)
+                    {
+                        btnBorder.Background = surfaceBrush;
+                        btnBorder.BorderBrush = sepBrush;
+                    }
+                    else if (hovered)
+                    {
+                        btnBorder.Background = hoverBg;
+                        btnBorder.BorderBrush = hoverBorder;
+                    }
+                    else if (!useIcon && !act.SwatchColor.HasValue)
+                    {
+                        btnBorder.Background = pillFill;
+                        btnBorder.BorderBrush = pillBorder;
+                    }
+                    else
+                    {
+                        btnBorder.Background = Brushes.Transparent;
+                        btnBorder.BorderBrush = Brushes.Transparent;
                     }
                 }
 
-                _hoverTip.HideTip();
-                act.OnClick?.Invoke();
-            };
+                ApplyNormalVisual(false, false);
 
-            btnBorder.MouseRightButtonUp += (_, e) =>
+                btnBorder.MouseEnter += (_, _) =>
+                {
+                    ResetAutoHide();
+                    ApplyNormalVisual(true, false);
+                    if (!_isDragging)
+                        ShowHoverTooltipFor(btnBorder, act.Tip, hint);
+                };
+
+                btnBorder.MouseLeave += (_, _) =>
+                {
+                    ApplyNormalVisual(false, false);
+                    if (!_isDragging)
+                        _hoverTip.HideTip();
+                };
+
+                btnBorder.MouseLeftButtonDown += (_, e) =>
+                {
+                    e.Handled = true;
+                    ApplyNormalVisual(true, true);
+                    _dragItem = act;
+                    _dragStartScreen = PointToScreen(e.GetPosition(this));
+                    _isDragging = false;
+                    btnBorder.CaptureMouse();
+                };
+
+                btnBorder.MouseMove += (_, e) =>
+                {
+                    if (_dragItem != act || e.LeftButton != MouseButtonState.Pressed) return;
+                    Point curScreen = PointToScreen(e.GetPosition(this));
+                    if (!_isDragging)
+                    {
+                        if (Math.Abs(curScreen.X - _dragStartScreen.X) + Math.Abs(curScreen.Y - _dragStartScreen.Y) < _cfg.MinDragPx)
+                            return;
+                        _isDragging = true;
+                    }
+                    var target = HitTestButtonAtScreen(curScreen);
+                    string dragLabel = target != null && target.Tip != act.Tip
+                        ? $"Move '{act.Tip}' before '{target.Tip}'"
+                        : $"Dragging: {act.Tip}";
+                    ShowHoverTooltipFor(btnBorder, dragLabel, "");
+                };
+
+                btnBorder.MouseLeftButtonUp += (_, e) =>
+                {
+                    e.Handled = true;
+                    if (btnBorder.IsMouseCaptured)
+                        btnBorder.ReleaseMouseCapture();
+                    ApplyNormalVisual(btnBorder.IsMouseOver, false);
+
+                    if (_dragItem == act)
+                    {
+                        bool wasDrag = _isDragging;
+                        _dragItem = null;
+                        _isDragging = false;
+
+                        if (wasDrag)
+                        {
+                            Point curScreen = PointToScreen(e.GetPosition(this));
+                            var target = HitTestButtonAtScreen(curScreen);
+                            _hoverTip.HideTip();
+                            if (target != null && target.Tip != act.Tip)
+                                _onReorder?.Invoke(act.Tip, target.Tip);
+                            return;
+                        }
+                    }
+
+                    _hoverTip.HideTip();
+                    act.OnClick?.Invoke();
+                };
+
+                btnBorder.MouseRightButtonUp += (_, e) =>
+                {
+                    e.Handled = true;
+                    _hoverTip.HideTip();
+                    if (act.OnRightClick != null)
+                        act.OnRightClick.Invoke();
+                    else
+                        HideToolbar();
+                };
+
+                _buttonEntries.Add((btnBorder, act, hint));
+                targetRow.Children.Add(btnBorder);
+            }
+        }
+
+        if (_cfg.TwoLayerPopup && actions.Count > 3)
+        {
+            var lowerItems = actions.Where(a => a.IsPrimaryRelevant).ToList();
+            var upperItems = actions.Where(a => !a.IsPrimaryRelevant).ToList();
+
+            // Fallback split if user customized enabled actions such that all fell into one bucket
+            if (lowerItems.Count == 0 || upperItems.Count == 0)
             {
-                e.Handled = true;
-                _hoverTip.HideTip();
-                if (act.OnRightClick != null)
-                    act.OnRightClick.Invoke();
-                else
-                    HideToolbar();
-            };
+                int mid = (actions.Count + 1) / 2;
+                lowerItems = actions.Take(mid).ToList();
+                upperItems = actions.Skip(mid).ToList();
+            }
 
-            _buttonEntries.Add((btnBorder, act, hint));
-            _row.Children.Add(btnBorder);
+            // Number lower (relevant) row 1..K first so primary actions have 1, 2, 3... shortcuts
+            PopulateRow(_lowerRow, lowerItems);
+            PopulateRow(_upperRow, upperItems);
+            _upperRow.Visibility = Visibility.Visible;
+            _layerDivider.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            _upperRow.Visibility = Visibility.Collapsed;
+            _layerDivider.Visibility = Visibility.Collapsed;
+            PopulateRow(_lowerRow, actions);
         }
     }
 
@@ -422,10 +566,10 @@ internal sealed class PopupToolbarWindow : Window
         int physH = (int)Math.Round(ActualHeight * scale);
         int pad = (int)Math.Round(6 * scale);
 
-        int px = Math.Max(work.Left + pad, Math.Min(screenX - physW / 3, work.Right - physW - pad));
-        int py = screenY - physH - (int)Math.Round(18 * scale);
+        int px = Math.Max(work.Left + pad, Math.Min(screenX - physW / 2, work.Right - physW - pad));
+        int py = screenY - physH - (int)Math.Round(14 * scale);
         if (py < work.Top + pad)
-            py = screenY + (int)Math.Round(24 * scale);
+            py = screenY + (int)Math.Round(22 * scale);
         py = Math.Max(work.Top + pad, Math.Min(py, work.Bottom - physH - pad));
 
         Native.MoveWindowPhysical(Hwnd, px, py);
@@ -453,7 +597,7 @@ internal sealed class PopupToolbarWindow : Window
             {
                 Point tl = border.PointToScreen(new Point(0, 0));
                 Point br = border.PointToScreen(new Point(border.ActualWidth, border.ActualHeight));
-                if (screenPt.X >= tl.X && screenPt.X <= br.X && screenPt.Y >= tl.Y - 20 && screenPt.Y <= br.Y + 20)
+                if (screenPt.X >= tl.X - 2 && screenPt.X <= br.X + 2 && screenPt.Y >= tl.Y - 4 && screenPt.Y <= br.Y + 4)
                     return item;
             }
             catch { }
@@ -508,7 +652,7 @@ internal sealed class HoverTipWindow : Window
         {
             FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"),
             FontWeight = FontWeights.SemiBold,
-            FontSize = 12,
+            FontSize = 11.5,
             Foreground = new SolidColorBrush(pal.Text),
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -518,7 +662,7 @@ internal sealed class HoverTipWindow : Window
         {
             FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"),
             FontWeight = FontWeights.SemiBold,
-            FontSize = 10,
+            FontSize = 9.5,
             Foreground = new SolidColorBrush(pal.KeycapText),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
@@ -526,10 +670,10 @@ internal sealed class HoverTipWindow : Window
 
         _keycapBorder = new Border
         {
-            MinWidth = 19,
-            Height = 18,
-            Padding = new Thickness(4, 0, 4, 0),
-            CornerRadius = new CornerRadius(4),
+            MinWidth = 18,
+            Height = 16,
+            Padding = new Thickness(3.5, 0, 3.5, 0),
+            CornerRadius = new CornerRadius(3.5),
             Background = new SolidColorBrush(pal.KeycapBg),
             BorderBrush = new SolidColorBrush(pal.IsLight ? Color.FromRgb(0xCB, 0xD5, 0xE1) : Color.FromRgb(0x38, 0x40, 0x56)),
             BorderThickness = new Thickness(1),
@@ -541,7 +685,7 @@ internal sealed class HoverTipWindow : Window
 
         _card = new Border
         {
-            Padding = new Thickness(9, 4, 8, 4),
+            Padding = new Thickness(8, 3, 7, 3),
             Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90),
             Child = row
         };

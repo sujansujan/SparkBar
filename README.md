@@ -22,6 +22,9 @@
 
 - **⚡ Instantaneous Pre-Warmed DWM Flyouts (`< 25 ms`)**
   - Uses persistent, pre-warmed Win32 `HWND`s with native Windows 11 Desktop Window Manager (`DWMWA_WINDOW_CORNER_PREFERENCE`, `DWMWA_BORDER_COLOR`, and Mica/Acrylic backdrops) instead of slow software-layered windows.
+- **📐 Compact Two-Layer Smart Deck & 4 Sharp Size Presets (`mini`, `compact`, `normal`, `large`)**
+  - **Two-Layer Smart Layout**: Cuts horizontal mouse travel in half by placing **selection-relevant actions** (Contextual URL/Math/Unit/Path/Color/Define pills + `Copy`/`Cut`/`Paste` + `Default Search`) in the **lower row right next to your cursor**, and **secondary utilities** (`+Copy`, `QR`, `...`, `Translate`, `Aa`) in the **upper row**.
+  - **4 Razor-Sharp Size Presets**: Choose between **Mini** (`22px`), **Compact** (`26px`, default), **Normal** (`30px`), and **Large** (`34px`) in **Settings → General**, rendered with pixel-snapped `TextFormattingMode.Display` ClearType.
 - **🧠 Smart Contextual Pills**
   - **Math Calculator**: Evaluates arithmetic and scientific expressions inline (`24 * (7 + 3)` → `= 240`, `sqrt(144) + 8` → `= 20`, `2 * pi * 10`, `sin`, `cos`, `tan`, `log`, `ln`, `abs`, `round`).
   - **Unit, Base & Timestamp Converter**: Automatically converts lengths (`km` ↔ `mi`, `m` ↔ `ft`, `cm` ↔ `in`, `mm` ↔ `in`), weights (`kg` ↔ `lbs`, `g` ↔ `oz`), temperatures (`°C` ↔ `°F`), speeds (`km/h` ↔ `mph`, `m/s` ↔ `km/h`), volumes (`L` ↔ `gal`, `mL` ↔ `fl oz`), areas (`sqft` ↔ `m²`), data sizes (`TB`/`GB`/`MB`/`KB`), hex (`0x...`), binary (`0b...`), and 10/13-digit Unix timestamps (`🕒 UTC`).

@@ -128,6 +128,8 @@ public sealed class ConfigService
     public HashSet<string> ExcludedExes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public string ThemeMode { get; set; } = "midnight";
+    public string PopupSize { get; set; } = "compact"; // mini, compact, normal, large
+    public bool TwoLayerPopup { get; set; } = true;
     public bool AnimationsEnabled { get; set; } = true;
     public bool ShowHintBadges { get; set; } = false;
     public bool KeyboardTriggerEnabled { get; set; } = false;
@@ -256,6 +258,12 @@ public sealed class ConfigService
         if (tm is "light" or "dark" or "auto" or "midnight" or "slate")
             ThemeMode = tm;
 
+        string ps = ReadIni("General", "PopupSize", PopupSize).Trim().ToLowerInvariant();
+        if (ps is "mini" or "compact" or "normal" or "large")
+            PopupSize = ps;
+
+        TwoLayerPopup = ReadIni("General", "TwoLayerPopup", "1") != "0";
+
         foreach (string label in ActionCatalog)
         {
             string disp = ReadIni("Display", label, ActionDisplay[label]).Trim().ToLowerInvariant();
@@ -269,6 +277,8 @@ public sealed class ConfigService
     {
         WriteIni("General", "DefaultSearchEngine", DefaultSearchEngine);
         WriteIni("General", "ThemeMode", ThemeMode);
+        WriteIni("General", "PopupSize", PopupSize);
+        WriteIni("General", "TwoLayerPopup", TwoLayerPopup ? "1" : "0");
         WriteIni("General", "Animations", AnimationsEnabled ? "1" : "0");
         WriteIni("General", "ShowHintBadges", ShowHintBadges ? "1" : "0");
         WriteIni("General", "KeyboardTrigger", KeyboardTriggerEnabled ? "1" : "0");

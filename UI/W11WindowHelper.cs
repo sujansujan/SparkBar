@@ -32,6 +32,11 @@ internal static class W11WindowHelper
         w.ShowActivated = false;
         w.SizeToContent = SizeToContent.WidthAndHeight;
         w.Background = Brushes.Transparent;
+        w.UseLayoutRounding = true;
+        w.SnapsToDevicePixels = true;
+        TextOptions.SetTextFormattingMode(w, TextFormattingMode.Display);
+        TextOptions.SetTextRenderingMode(w, TextRenderingMode.ClearType);
+        RenderOptions.SetBitmapScalingMode(w, BitmapScalingMode.HighQuality);
 
         var chrome = new WindowChrome
         {

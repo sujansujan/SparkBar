@@ -95,8 +95,8 @@ internal sealed class SettingsWindow : Window
     private readonly ObservableCollection<EngineRowModel> _engineRows = new();
     private readonly ObservableCollection<string> _excludedRows = new();
 
-    private ComboBox _themeCombo;
-    private CheckBox _startupChk, _animChk, _hintsChk, _kbdChk, _fsChk, _fbChk, _uncChk;
+    private ComboBox _themeCombo, _sizeCombo;
+    private CheckBox _twoLayerChk, _startupChk, _animChk, _hintsChk, _kbdChk, _fsChk, _fbChk, _uncChk;
     private TextBox _timeoutEd, _dragEd;
     private ComboBox _defaultSearchCombo;
     private ListBox _actListBox, _engListBox, _exclListBox;
@@ -390,25 +390,41 @@ internal sealed class SettingsWindow : Window
 
         sp.Children.Add(MakeSectionTitle("Appearance & Theme", pal));
 
-        var themeRow = new DockPanel { Margin = new Thickness(0, 2, 0, 6) };
+        var themeRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 6) };
         themeRow.Children.Add(new TextBlock
         {
-            Text = "Color theme",
+            Text = "Color theme:",
             Foreground = textBrush,
-            Width = 165,
+            Width = 95,
             VerticalAlignment = VerticalAlignment.Center,
             FontSize = 13
         });
-        _themeCombo = new ComboBox { Width = 185, HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(8, 4, 8, 4) };
+        _themeCombo = new ComboBox { Width = 140, Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 0, 22, 0) };
         foreach (string tm in new[] { "midnight", "slate", "auto", "dark", "light" })
             _themeCombo.Items.Add(tm);
         _themeCombo.SelectedItem = _cfg.ThemeMode;
         themeRow.Children.Add(_themeCombo);
+
+        themeRow.Children.Add(new TextBlock
+        {
+            Text = "Popup bar size:",
+            Foreground = textBrush,
+            Width = 105,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 13
+        });
+        _sizeCombo = new ComboBox { Width = 130, Padding = new Thickness(8, 4, 8, 4) };
+        foreach (string sz in new[] { "mini", "compact", "normal", "large" })
+            _sizeCombo.Items.Add(sz);
+        _sizeCombo.SelectedItem = _cfg.PopupSize;
+        themeRow.Children.Add(_sizeCombo);
         sp.Children.Add(themeRow);
 
+        _twoLayerChk = MakeCheck("Two-layer smart popup (relevant items on lower row near cursor, utilities on upper row)", _cfg.TwoLayerPopup, textBrush);
         _startupChk = MakeCheck("Launch SparkBar automatically when Windows starts", _cfg.IsRunAtStartupEnabled(), textBrush);
         _animChk  = MakeCheck("Smooth fade & slide animations", _cfg.AnimationsEnabled, textBrush);
         _hintsChk = MakeCheck("Show keyboard shortcut badges (1-9, A-Z) on toolbar", _cfg.ShowHintBadges, textBrush);
+        sp.Children.Add(_twoLayerChk);
         sp.Children.Add(_startupChk);
         sp.Children.Add(_animChk);
         sp.Children.Add(_hintsChk);
@@ -962,6 +978,8 @@ internal sealed class SettingsWindow : Window
     {
         _cfg.SetRunAtStartup(_startupChk.IsChecked == true);
         _cfg.ThemeMode = (_themeCombo.SelectedItem as string) ?? _cfg.ThemeMode;
+        _cfg.PopupSize = (_sizeCombo.SelectedItem as string) ?? _cfg.PopupSize;
+        _cfg.TwoLayerPopup = _twoLayerChk.IsChecked == true;
         _cfg.AnimationsEnabled = _animChk.IsChecked == true;
         _cfg.ShowHintBadges = _hintsChk.IsChecked == true;
         _cfg.KeyboardTriggerEnabled = _kbdChk.IsChecked == true;
