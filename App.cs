@@ -60,7 +60,13 @@ public sealed class App : Application
         _singleInstanceMutex = new Mutex(true, @"Global\SparkBar_SingleInstance_Mutex", out bool createdNew);
         if (!createdNew && !args.Contains("--allow-multi"))
         {
-            return;
+            // Ask the existing running instance to gracefully shut down so the newly launched binary can take over
+            uint msg = Native.RegisterWindowMessage("SparkBar_GracefulShutdown");
+            if (msg != 0)
+            {
+                Native.PostMessage(Native.HWND_BROADCAST, msg, new IntPtr(Environment.ProcessId), IntPtr.Zero);
+                Thread.Sleep(350);
+            }
         }
 
         var app = new App
@@ -554,8 +560,7 @@ public sealed class App : Application
                 IsIconGlyph = true,
                 Image = _cfg.GetFaviconBitmap(defaultE),
                 Group = 0,
-                // Keep Default Search in the primary lower row for text/words/numbers; move to upper row when a URL/file/email is selected
-                IsPrimaryRelevant = !(isUrl || isEmail || isPath),
+                RelevancePriority = (isUrl || isEmail || isPath) ? 2 : 1,
                 OnClick = () => RunSearchOrAction(t, defaultE),
                 OnRightClick = DoQuickDefaultSearchPicker
             });
@@ -569,7 +574,7 @@ public sealed class App : Application
                 Glyph = "\uE8C6",
                 IsIconGlyph = true,
                 Group = 1,
-                IsPrimaryRelevant = true,
+                RelevancePriority = 1,
                 OnClick = DoCut
             });
         }
@@ -580,7 +585,7 @@ public sealed class App : Application
             Glyph = "\uE8C8",
             IsIconGlyph = true,
             Group = 1,
-            IsPrimaryRelevant = true,
+            RelevancePriority = 1,
             OnClick = DoCopy,
             OnRightClick = DoAppendClipboard
         });
@@ -594,7 +599,7 @@ public sealed class App : Application
                 Glyph = "\uE710",
                 IsIconGlyph = true,
                 Group = 1,
-                IsPrimaryRelevant = false,
+                RelevancePriority = 2,
                 OnClick = DoAppendClipboard,
                 OnRightClick = DoAppendClipboard
             });
@@ -608,7 +613,7 @@ public sealed class App : Application
                 Glyph = "\uE77F",
                 IsIconGlyph = true,
                 Group = 1,
-                IsPrimaryRelevant = true,
+                RelevancePriority = 1,
                 OnClick = DoPaste,
                 OnRightClick = ShowClipboardHistoryMenu
             });
@@ -622,16 +627,16 @@ public sealed class App : Application
                 Glyph = "\uE8A2",
                 IsIconGlyph = true,
                 Group = 1,
-                IsPrimaryRelevant = false,
+                RelevancePriority = 2,
                 OnClick = DoTypeClipboard
             });
         }
 
         if (isUrl)
         {
-            acts.Add(new PopupActionItem { Tip = "Open link", Glyph = "\uE8A7", IsIconGlyph = true, Group = 2, IsPrimaryRelevant = true, OnClick = DoOpenLink });
-            acts.Add(new PopupActionItem { Tip = "Clean URL", Glyph = "\uE8B7", IsIconGlyph = true, Group = 2, IsPrimaryRelevant = true, OnClick = () => CopyTextAction(SmartParser.CleanUrl(t), "Clean URL copied") });
-            acts.Add(new PopupActionItem { Tip = "Copy domain", Glyph = "\uE774", IsIconGlyph = true, Group = 2, IsPrimaryRelevant = true, OnClick = () => DoCopyDomain(t) });
+            acts.Add(new PopupActionItem { Tip = "Open link", Glyph = "\uE8A7", IsIconGlyph = true, Group = 2, RelevancePriority = 0, OnClick = DoOpenLink });
+            acts.Add(new PopupActionItem { Tip = "Clean URL", Glyph = "\uE8B7", IsIconGlyph = true, Group = 2, RelevancePriority = 0, OnClick = () => CopyTextAction(SmartParser.CleanUrl(t), "Clean URL copied") });
+            acts.Add(new PopupActionItem { Tip = "Copy domain", Glyph = "\uE774", IsIconGlyph = true, Group = 2, RelevancePriority = 0, OnClick = () => DoCopyDomain(t) });
             acts.Add(new PopupActionItem
             {
                 Tip = "Save URL as action",
@@ -640,7 +645,7 @@ public sealed class App : Application
                 IsIconGlyph = true,
                 Accent = true,
                 Group = 2,
-                IsPrimaryRelevant = true,
+                RelevancePriority = 0,
                 OnClick = () => ShowUrlBuilder(t)
             });
         }
@@ -652,20 +657,20 @@ public sealed class App : Application
                 Glyph = "\uE715",
                 IsIconGlyph = true,
                 Group = 2,
-                IsPrimaryRelevant = true,
+                RelevancePriority = 0,
                 OnClick = () => { HidePopup(); TryShellStart("mailto:" + t); }
             });
         }
         else if (isPath)
         {
-            acts.Add(new PopupActionItem { Tip = "Open", Glyph = "\uE8E5", IsIconGlyph = true, Group = 2, IsPrimaryRelevant = true, OnClick = () => DoOpenPath(t) });
+            acts.Add(new PopupActionItem { Tip = "Open", Glyph = "\uE8E5", IsIconGlyph = true, Group = 2, RelevancePriority = 0, OnClick = () => DoOpenPath(t) });
             acts.Add(new PopupActionItem
             {
                 Tip = "Show in folder",
                 Glyph = "\uE838",
                 IsIconGlyph = true,
                 Group = 2,
-                IsPrimaryRelevant = true,
+                RelevancePriority = 0,
                 OnClick = () =>
                 {
                     HidePopup();
@@ -681,7 +686,7 @@ public sealed class App : Application
                 Tip = "Copy #" + hexCol + " (Right-click for RGB/HSL)",
                 SwatchColor = col,
                 Group = 2,
-                IsPrimaryRelevant = true,
+                RelevancePriority = 0,
                 OnClick = () => CopyTextAction("#" + hexCol, $"Color #{hexCol} copied"),
                 OnRightClick = () => ShowColorVariantsMenu(col)
             });
@@ -696,7 +701,7 @@ public sealed class App : Application
                 ForceText = true,
                 Accent = true,
                 Group = 2,
-                IsPrimaryRelevant = true,
+                RelevancePriority = 0,
                 OnClick = () => CopyTextAction(convCopy, "Copied: " + convCopy)
             });
         }
@@ -710,7 +715,7 @@ public sealed class App : Application
                 ForceText = true,
                 Accent = true,
                 Group = 2,
-                IsPrimaryRelevant = true,
+                RelevancePriority = 0,
                 OnClick = () => CopyTextAction(mathRes, "Copied: " + mathRes)
             });
         }
@@ -722,7 +727,7 @@ public sealed class App : Application
                 Glyph = "\uE82D",
                 IsIconGlyph = true,
                 Group = 2,
-                IsPrimaryRelevant = true,
+                RelevancePriority = 0,
                 OnClick = () => { HidePopup(); OpenUrl(ConfigService.DefineUrl + Uri.EscapeDataString(t)); }
             });
         }
@@ -733,6 +738,7 @@ public sealed class App : Application
             Glyph = "\uED14",
             IsIconGlyph = true,
             Group = 3,
+            RelevancePriority = 3,
             OnClick = () => DoQrCode(t)
         });
 
@@ -753,6 +759,7 @@ public sealed class App : Application
                     IsIconGlyph = hasGlyph,
                     Image = _cfg.GetFaviconBitmap(eng),
                     Group = 4,
+                    RelevancePriority = 2,
                     OnClick = () => RunSearchOrAction(t, eng),
                     OnRightClick = () => SetDefaultSearchEngineLive(eng.Name, notify: true)
                 });
@@ -771,6 +778,7 @@ public sealed class App : Application
                 Glyph = "\uE712",
                 IsIconGlyph = true,
                 Group = 4,
+                RelevancePriority = 3,
                 OnClick = DoSearchMenu
             });
         }
@@ -782,6 +790,7 @@ public sealed class App : Application
             Glyph = "\uE8C1",
             IsIconGlyph = true,
             Group = 4,
+            RelevancePriority = 2,
             OnClick = () => { HidePopup(); OpenUrl(ConfigService.TranslateUrl + Uri.EscapeDataString(t)); }
         });
 
@@ -793,6 +802,7 @@ public sealed class App : Application
             Glyph = $"{words}w",
             ForceText = true,
             Group = 5,
+            RelevancePriority = 3,
             OnClick = () => CopyTextAction($"{words} words, {chars} characters, {lines} lines", "Stats copied")
         });
 
@@ -803,6 +813,7 @@ public sealed class App : Application
             Glyph = "Aa",
             Accent = true,
             Group = 5,
+            RelevancePriority = 2,
             OnClick = DoCaseMenu
         });
 

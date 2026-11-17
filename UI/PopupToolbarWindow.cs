@@ -23,25 +23,26 @@ public sealed class PopupActionItem
     public bool Accent { get; init; }
     public int Group { get; init; }
     /// <summary>
-    /// True if this action is directly relevant to the current selection (placed in the lower row closest to the cursor in 2-layer mode).
+    /// Relevance tier for 2-layer packing (0 = contextual match, 1 = core edit/search, 2 = frequent secondary, 3 = utility).
+    /// Lower numbers strongly prefer the lower layer closest to the cursor.
     /// </summary>
-    public bool IsPrimaryRelevant { get; init; }
+    public int RelevancePriority { get; init; } = 2;
     public Action OnClick { get; init; }
     public Action OnRightClick { get; init; }
 }
 
 /// <summary>
 /// Pre-warmed, persistent floating toolbar window supporting 4 sharp size presets (mini, compact, normal, large)
-/// and a 2-layer smart context deck (lower row = relevant actions near cursor, upper row = secondary utilities).
+/// and a symmetrical width-balanced 2-layer smart context deck.
 /// </summary>
 internal sealed class PopupToolbarWindow : Window
 {
     private readonly ConfigService _cfg;
     private readonly Border _card;
     private readonly StackPanel _deckPanel;
-    private readonly StackPanel _upperRow;
+    private readonly Grid _upperRow;
     private readonly Border _layerDivider;
-    private readonly StackPanel _lowerRow;
+    private readonly Grid _lowerRow;
     private readonly Border _topHighlight;
     private readonly DispatcherTimer _autoHideTimer;
     private readonly Dictionary<string, Action> _hintMap = new(StringComparer.OrdinalIgnoreCase);
@@ -89,38 +90,38 @@ internal sealed class PopupToolbarWindow : Window
         return (_cfg.PopupSize ?? "compact").ToLowerInvariant() switch
         {
             "mini" => new SizeMetrics(
-                BtnHeight: 22, IconMinWidth: 25, PillMinWidth: 28,
-                IconFontSize: 12, TextFontSize: 11,
-                FavTileSize: 18, FavImgSize: 14, SwatchSize: 13, SepHeight: 12,
-                BtnCornerRadius: 5, TextPadX: 7,
-                CardPadding: new Thickness(3, 3, 3, 3),
-                BtnMargin: new Thickness(1, 0, 1, 0),
+                BtnHeight: 20, IconMinWidth: 23, PillMinWidth: 26,
+                IconFontSize: 11.5, TextFontSize: 10.5,
+                FavTileSize: 16, FavImgSize: 13, SwatchSize: 12, SepHeight: 11,
+                BtnCornerRadius: 4.5, TextPadX: 5.5,
+                CardPadding: new Thickness(2.5, 2.5, 2.5, 2.5),
+                BtnMargin: new Thickness(0.5, 0, 0.5, 0),
                 SmallWindowCorners: true),
 
             "normal" => new SizeMetrics(
-                BtnHeight: 30, IconMinWidth: 34, PillMinWidth: 38,
-                IconFontSize: 14.5, TextFontSize: 12.5,
-                FavTileSize: 24, FavImgSize: 18, SwatchSize: 17, SepHeight: 16,
+                BtnHeight: 29, IconMinWidth: 32, PillMinWidth: 36,
+                IconFontSize: 14, TextFontSize: 12,
+                FavTileSize: 23, FavImgSize: 17, SwatchSize: 16, SepHeight: 15,
+                BtnCornerRadius: 6, TextPadX: 8,
+                CardPadding: new Thickness(3.5, 3.5, 3.5, 3.5),
+                BtnMargin: new Thickness(1, 0, 1, 0),
+                SmallWindowCorners: false),
+
+            "large" => new SizeMetrics(
+                BtnHeight: 33, IconMinWidth: 36, PillMinWidth: 40,
+                IconFontSize: 15.5, TextFontSize: 13,
+                FavTileSize: 26, FavImgSize: 20, SwatchSize: 18, SepHeight: 17,
                 BtnCornerRadius: 6.5, TextPadX: 9,
                 CardPadding: new Thickness(4, 4, 4, 4),
                 BtnMargin: new Thickness(1.5, 0, 1.5, 0),
                 SmallWindowCorners: false),
 
-            "large" => new SizeMetrics(
-                BtnHeight: 34, IconMinWidth: 38, PillMinWidth: 42,
-                IconFontSize: 16, TextFontSize: 13.5,
-                FavTileSize: 27, FavImgSize: 20, SwatchSize: 19, SepHeight: 18,
-                BtnCornerRadius: 7, TextPadX: 10,
-                CardPadding: new Thickness(5, 5, 5, 5),
-                BtnMargin: new Thickness(2, 0, 2, 0),
-                SmallWindowCorners: false),
-
             _ => new SizeMetrics( // "compact" (default)
-                BtnHeight: 26, IconMinWidth: 29, PillMinWidth: 33,
-                IconFontSize: 13, TextFontSize: 11.5,
-                FavTileSize: 20, FavImgSize: 16, SwatchSize: 15, SepHeight: 14,
-                BtnCornerRadius: 5.5, TextPadX: 8,
-                CardPadding: new Thickness(3, 3.5, 3, 3.5),
+                BtnHeight: 24, IconMinWidth: 27, PillMinWidth: 30,
+                IconFontSize: 12.5, TextFontSize: 11,
+                FavTileSize: 19, FavImgSize: 15, SwatchSize: 14, SepHeight: 13,
+                BtnCornerRadius: 5, TextPadX: 6.5,
+                CardPadding: new Thickness(3, 3, 3, 3),
                 BtnMargin: new Thickness(1, 0, 1, 0),
                 SmallWindowCorners: false)
         };
@@ -134,26 +135,24 @@ internal sealed class PopupToolbarWindow : Window
 
         W11WindowHelper.ConfigureDwmFlyoutChrome(this);
 
-        _upperRow = new StackPanel
+        _upperRow = new Grid
         {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Center
         };
 
         _layerDivider = new Border
         {
             Height = 1,
-            Margin = new Thickness(4, 2.5, 4, 2.5),
+            Margin = new Thickness(2, 2, 2, 2),
             SnapsToDevicePixels = true,
             Visibility = Visibility.Collapsed
         };
         RenderOptions.SetEdgeMode(_layerDivider, EdgeMode.Aliased);
 
-        _lowerRow = new StackPanel
+        _lowerRow = new Grid
         {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Center
         };
 
@@ -171,7 +170,7 @@ internal sealed class PopupToolbarWindow : Window
             Height = 1,
             VerticalAlignment = VerticalAlignment.Top,
             Background = new SolidColorBrush(pal.IsLight ? Colors.White : Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF)),
-            Margin = new Thickness(0, -4, 0, 0),
+            Margin = new Thickness(0, -3, 0, 0),
             SnapsToDevicePixels = true,
             IsHitTestVisible = false
         };
@@ -183,7 +182,7 @@ internal sealed class PopupToolbarWindow : Window
 
         _card = new Border
         {
-            Padding = new Thickness(3, 3.5, 3, 3.5),
+            Padding = new Thickness(3, 3, 3, 3),
             Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90),
             SnapsToDevicePixels = true,
             UseLayoutRounding = true,
@@ -218,21 +217,124 @@ internal sealed class PopupToolbarWindow : Window
         _hoverTip.PreWarm();
     }
 
+    private double EstimateItemWidth(PopupActionItem act, SizeMetrics m)
+    {
+        bool useIcon = !act.ForceText && _cfg.GetActionDisplay(act.Tip) == "icon";
+        double marginW = m.BtnMargin.Left + m.BtnMargin.Right;
+        if (useIcon || act.SwatchColor.HasValue)
+            return m.IconMinWidth + marginW;
+
+        string labelShown = !string.IsNullOrEmpty(act.ShortLabel) ? act.ShortLabel : act.Tip;
+        double textW = Math.Ceiling(labelShown.Length * (m.TextFontSize * 0.56)) + (m.TextPadX * 2) + 2;
+        return Math.Max(m.PillMinWidth, Math.Min(180, textW)) + marginW;
+    }
+
+    /// <summary>
+    /// Splits actions into Lower Layer (most relevant, closest to cursor) and Upper Layer (secondary utilities)
+    /// while balancing the natural visual width of both rows so they are as symmetrical and compact as possible.
+    /// </summary>
+    private void PartitionTwoLayersSymmetrically(
+        IReadOnlyList<PopupActionItem> actions,
+        SizeMetrics m,
+        out List<PopupActionItem> lowerItems,
+        out List<PopupActionItem> upperItems)
+    {
+        int n = actions.Count;
+        double[] widths = new double[n];
+        double totalW = 0;
+        for (int i = 0; i < n; i++)
+        {
+            widths[i] = EstimateItemWidth(actions[i], m);
+            totalW += widths[i];
+        }
+
+        double targetW = totalW / 2.0;
+
+        // Order candidate indices by (RelevancePriority ASC, OriginalIndex ASC)
+        int[] ranked = Enumerable.Range(0, n)
+            .OrderBy(i => actions[i].RelevancePriority)
+            .ThenBy(i => i)
+            .ToArray();
+
+        bool[] inLower = new bool[n];
+        double curLowerW = 0;
+        int lowerCount = 0;
+
+        for (int r = 0; r < n; r++)
+        {
+            int idx = ranked[r];
+            double w = widths[idx];
+            if (lowerCount < 2 || Math.Abs((curLowerW + w) - targetW) <= Math.Abs(curLowerW - targetW))
+            {
+                if (lowerCount < n - 2)
+                {
+                    inLower[idx] = true;
+                    curLowerW += w;
+                    lowerCount++;
+                }
+            }
+        }
+
+        // Refine by testing 1-item moves or swaps among items with RelevancePriority >= 1
+        // to minimize |lowerW - upperW| without demoting Priority 0 contextual items
+        bool improved = true;
+        while (improved)
+        {
+            improved = false;
+            double curDiff = Math.Abs(curLowerW - (totalW - curLowerW));
+
+            // Try swapping a lower item (Priority >= 1) with an upper item (Priority <= lower.Priority + 1)
+            for (int i = 0; i < n; i++)
+            {
+                if (!inLower[i] || actions[i].RelevancePriority == 0) continue;
+                for (int j = 0; j < n; j++)
+                {
+                    if (inLower[j]) continue;
+                    if (actions[j].RelevancePriority > actions[i].RelevancePriority) continue;
+
+                    double newLowerW = curLowerW - widths[i] + widths[j];
+                    double newDiff = Math.Abs(newLowerW - (totalW - newLowerW));
+                    if (newDiff + 1.5 < curDiff)
+                    {
+                        inLower[i] = false;
+                        inLower[j] = true;
+                        curLowerW = newLowerW;
+                        curDiff = newDiff;
+                        improved = true;
+                        break;
+                    }
+                }
+                if (improved) break;
+            }
+        }
+
+        lowerItems = new List<PopupActionItem>(lowerCount);
+        upperItems = new List<PopupActionItem>(n - lowerCount);
+        for (int i = 0; i < n; i++)
+        {
+            if (inLower[i]) lowerItems.Add(actions[i]);
+            else upperItems.Add(actions[i]);
+        }
+    }
+
     public void PopulateActions(IReadOnlyList<PopupActionItem> actions)
     {
         var pal = _cfg.Palette;
         var m = GetMetrics();
 
+        Background = new SolidColorBrush(pal.BgBottom);
         if (Hwnd != IntPtr.Zero)
             W11WindowHelper.ApplyDwmFlyoutAttributes(Hwnd, pal, smallCorners: m.SmallWindowCorners);
 
         _card.Padding = m.CardPadding;
         _card.Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90);
         _topHighlight.Background = new SolidColorBrush(pal.IsLight ? Colors.White : Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
-        _layerDivider.Background = new SolidColorBrush(Color.FromArgb(150, pal.Separator.R, pal.Separator.G, pal.Separator.B));
+        _layerDivider.Background = new SolidColorBrush(Color.FromArgb(160, pal.Separator.R, pal.Separator.G, pal.Separator.B));
 
         _upperRow.Children.Clear();
+        _upperRow.ColumnDefinitions.Clear();
         _lowerRow.Children.Clear();
+        _lowerRow.ColumnDefinitions.Clear();
         _visibleTips.Clear();
         _hintMap.Clear();
         _buttonEntries.Clear();
@@ -254,9 +356,11 @@ internal sealed class PopupToolbarWindow : Window
 
         int hintCounter = 1;
 
-        void PopulateRow(StackPanel targetRow, IReadOnlyList<PopupActionItem> rowActions)
+        void PopulateRow(Grid targetGrid, IReadOnlyList<PopupActionItem> rowActions)
         {
             int prevGrp = -1;
+            int colIdx = 0;
+
             for (int i = 0; i < rowActions.Count; i++)
             {
                 var act = rowActions[i];
@@ -266,6 +370,7 @@ internal sealed class PopupToolbarWindow : Window
 
                 if (prevGrp != -1 && act.Group != prevGrp)
                 {
+                    targetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                     var vSep = new Border
                     {
                         Width = 1,
@@ -273,10 +378,11 @@ internal sealed class PopupToolbarWindow : Window
                         Background = sepBrush,
                         VerticalAlignment = VerticalAlignment.Center,
                         SnapsToDevicePixels = true,
-                        Margin = new Thickness(2.5, 0, 2.5, 0)
+                        Margin = new Thickness(1.5, 0, 1.5, 0)
                     };
                     RenderOptions.SetEdgeMode(vSep, EdgeMode.Aliased);
-                    targetRow.Children.Add(vSep);
+                    Grid.SetColumn(vSep, colIdx++);
+                    targetGrid.Children.Add(vSep);
                 }
                 prevGrp = act.Group;
 
@@ -286,11 +392,20 @@ internal sealed class PopupToolbarWindow : Window
                     : (!string.IsNullOrEmpty(act.ShortLabel) ? act.ShortLabel : act.Tip);
                 bool isIconFont = useIcon && act.IsIconGlyph;
 
+                double natW = EstimateItemWidth(act, m);
+                // Proportional star sizing with MinWidth = natW ensures both rows stretch flush to the exact same outer width!
+                targetGrid.ColumnDefinitions.Add(new ColumnDefinition
+                {
+                    Width = new GridLength(natW, GridUnitType.Star),
+                    MinWidth = natW
+                });
+
                 var btnGrid = new Grid
                 {
                     MinWidth = useIcon ? m.IconMinWidth : m.PillMinWidth,
                     MaxWidth = 200,
                     Height = m.BtnHeight,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
                     SnapsToDevicePixels = true,
                     UseLayoutRounding = true
                 };
@@ -301,7 +416,7 @@ internal sealed class PopupToolbarWindow : Window
                     {
                         Width = m.SwatchSize,
                         Height = m.SwatchSize,
-                        CornerRadius = new CornerRadius(4),
+                        CornerRadius = new CornerRadius(3.5),
                         Background = new SolidColorBrush(act.SwatchColor.Value),
                         BorderBrush = new SolidColorBrush(pal.IsLight ? Color.FromRgb(0x47, 0x55, 0x69) : Colors.White),
                         BorderThickness = new Thickness(1),
@@ -316,7 +431,7 @@ internal sealed class PopupToolbarWindow : Window
                     {
                         Width = m.FavTileSize,
                         Height = m.FavTileSize,
-                        CornerRadius = new CornerRadius(5),
+                        CornerRadius = new CornerRadius(4.5),
                         Background = new SolidColorBrush(pal.FaviconTile),
                         BorderBrush = new SolidColorBrush(pal.IsLight ? Color.FromRgb(0xCB, 0xD5, 0xE1) : Color.FromRgb(0x32, 0x38, 0x4C)),
                         BorderThickness = new Thickness(1),
@@ -374,11 +489,11 @@ internal sealed class PopupToolbarWindow : Window
                         Text = hint,
                         FontFamily = textFont,
                         FontWeight = FontWeights.SemiBold,
-                        FontSize = 8,
-                        Foreground = new SolidColorBrush(Color.FromArgb(200, pal.SubText.R, pal.SubText.G, pal.SubText.B)),
+                        FontSize = 7.5,
+                        Foreground = new SolidColorBrush(Color.FromArgb(195, pal.SubText.R, pal.SubText.G, pal.SubText.B)),
                         HorizontalAlignment = HorizontalAlignment.Right,
                         VerticalAlignment = VerticalAlignment.Bottom,
-                        Margin = new Thickness(0, 0, 1.5, 0.5)
+                        Margin = new Thickness(0, 0, 1.5, 0)
                     });
                 }
 
@@ -387,6 +502,7 @@ internal sealed class PopupToolbarWindow : Window
                     CornerRadius = new CornerRadius(m.BtnCornerRadius),
                     BorderThickness = new Thickness(1),
                     Margin = m.BtnMargin,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
                     SnapsToDevicePixels = true,
                     UseLayoutRounding = true,
                     Cursor = Cursors.Hand,
@@ -516,23 +632,15 @@ internal sealed class PopupToolbarWindow : Window
                         HideToolbar();
                 };
 
+                Grid.SetColumn(btnBorder, colIdx++);
                 _buttonEntries.Add((btnBorder, act, hint));
-                targetRow.Children.Add(btnBorder);
+                targetGrid.Children.Add(btnBorder);
             }
         }
 
-        if (_cfg.TwoLayerPopup && actions.Count > 3)
+        if (_cfg.TwoLayerPopup && actions.Count >= 4)
         {
-            var lowerItems = actions.Where(a => a.IsPrimaryRelevant).ToList();
-            var upperItems = actions.Where(a => !a.IsPrimaryRelevant).ToList();
-
-            // Fallback split if user customized enabled actions such that all fell into one bucket
-            if (lowerItems.Count == 0 || upperItems.Count == 0)
-            {
-                int mid = (actions.Count + 1) / 2;
-                lowerItems = actions.Take(mid).ToList();
-                upperItems = actions.Skip(mid).ToList();
-            }
+            PartitionTwoLayersSymmetrically(actions, m, out var lowerItems, out var upperItems);
 
             // Number lower (relevant) row 1..K first so primary actions have 1, 2, 3... shortcuts
             PopulateRow(_lowerRow, lowerItems);
@@ -567,9 +675,9 @@ internal sealed class PopupToolbarWindow : Window
         int pad = (int)Math.Round(6 * scale);
 
         int px = Math.Max(work.Left + pad, Math.Min(screenX - physW / 2, work.Right - physW - pad));
-        int py = screenY - physH - (int)Math.Round(14 * scale);
+        int py = screenY - physH - (int)Math.Round(12 * scale);
         if (py < work.Top + pad)
-            py = screenY + (int)Math.Round(22 * scale);
+            py = screenY + (int)Math.Round(20 * scale);
         py = Math.Max(work.Top + pad, Math.Min(py, work.Bottom - physH - pad));
 
         Native.MoveWindowPhysical(Hwnd, px, py);
@@ -707,6 +815,7 @@ internal sealed class HoverTipWindow : Window
     public void ShowAnchored(string labelText, string keyHint, int screenAnchorX, int screenBelowY, int screenAboveY)
     {
         var pal = _cfg.Palette;
+        Background = new SolidColorBrush(pal.BgBottom);
         if (_hwnd != IntPtr.Zero)
             W11WindowHelper.ApplyDwmFlyoutAttributes(_hwnd, pal, smallCorners: true);
 

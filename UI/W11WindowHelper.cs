@@ -42,7 +42,7 @@ internal static class W11WindowHelper
         {
             CaptionHeight = 0,
             ResizeBorderThickness = new Thickness(0),
-            GlassFrameThickness = new Thickness(-1),
+            GlassFrameThickness = new Thickness(0),
             CornerRadius = new CornerRadius(0),
             UseAeroCaptionButtons = false
         };
@@ -58,6 +58,7 @@ internal static class W11WindowHelper
         if (clickThrough) exAdd |= Native.WS_EX_TRANSPARENT;
         Native.AddExStyle(hwnd, exAdd);
 
+        w.Background = new SolidColorBrush(pal.BgBottom);
         ApplyDwmFlyoutAttributes(hwnd, pal, smallCorners);
 
         var src = HwndSource.FromHwnd(hwnd);

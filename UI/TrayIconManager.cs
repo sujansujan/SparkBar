@@ -33,6 +33,7 @@ internal sealed class TrayIconManager : IDisposable
     private HwndSource _sink;
     private IntPtr _hIcon;
     private uint _wmTaskbarCreated;
+    private uint _wmGracefulShutdown;
     private TrayFlyoutWindow _flyout;
 
     public IntPtr FlyoutHwnd => _flyout?.Hwnd ?? IntPtr.Zero;
@@ -64,6 +65,7 @@ internal sealed class TrayIconManager : IDisposable
         _onSystemThemeChanged = onSystemThemeChanged;
 
         _wmTaskbarCreated = Native.RegisterWindowMessage("TaskbarCreated");
+        _wmGracefulShutdown = Native.RegisterWindowMessage("SparkBar_GracefulShutdown");
 
         var p = new HwndSourceParameters("SparkBarTraySink")
         {
@@ -131,6 +133,12 @@ internal sealed class TrayIconManager : IDisposable
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (_wmGracefulShutdown != 0 && (uint)msg == _wmGracefulShutdown && wParam.ToInt64() != Environment.ProcessId)
+        {
+            handled = true;
+            _onExit?.Invoke();
+            return IntPtr.Zero;
+        }
         if (msg == Native.WM_SETTINGCHANGE || msg == Native.WM_DWMCOLORIZATIONCOLORCHANGED)
         {
             _onSystemThemeChanged?.Invoke();
