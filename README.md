@@ -98,7 +98,7 @@ In **Settings → Search & URLs**, you can add both web search engines and **loc
 
 ### Build & Run
 ```powershell
-git clone https://github.com/yourusername/SparkBar.git
+git clone https://github.com/sujansujan/SparkBar.git
 cd SparkBar
 dotnet build -c Release
 .\bin\Release\net10.0-windows\SparkBar.exe
