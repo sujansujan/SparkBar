@@ -75,7 +75,7 @@ internal sealed class OptionMenuWindow : Window
 
     public void PreWarm()
     {
-        W11WindowHelper.MakeNonActivatingFlyout(this, _cfg.Palette);
+        W11WindowHelper.MakeNonActivatingFlyout(this, _cfg.Palette, neonTui: _cfg.IsNeonTui);
         Hwnd = new WindowInteropHelper(this).Handle;
         Left = -32000;
         Top = -32000;
@@ -94,52 +94,67 @@ internal sealed class OptionMenuWindow : Window
     {
         var pal = _cfg.Palette;
         var m = W11WindowHelper.GetFlyoutMetrics(_cfg);
+        bool isTui = _cfg.IsNeonTui;
 
         Background = new SolidColorBrush(pal.BgBottom);
         if (Hwnd != IntPtr.Zero)
         {
             Native.RemoveExStyle(Hwnd, Native.WS_EX_TRANSPARENT);
-            W11WindowHelper.ApplyDwmFlyoutAttributes(Hwnd, pal, smallCorners: m.SmallWindowCorners);
+            W11WindowHelper.ApplyDwmFlyoutAttributes(Hwnd, pal, smallCorners: m.SmallWindowCorners, neonTui: isTui);
         }
 
-        double padX = Math.Round(m.CardPadding.Left * 1.5);
-        double padY = Math.Round(m.CardPadding.Top * 1.5);
+        double padX = Math.Round(m.CardPadding.Left * (isTui ? 1.2 : 1.5));
+        double padY = Math.Round(m.CardPadding.Top * (isTui ? 1.2 : 1.5));
         _card.Padding = new Thickness(padX, padY, padX, padY);
         _card.Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90);
+        _topHighlight.Visibility = isTui ? Visibility.Collapsed : Visibility.Visible;
         _topHighlight.Background = new SolidColorBrush(pal.IsLight ? Colors.White : Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
         _topHighlight.Margin = new Thickness(0, -padY, 0, 0);
 
         _stack.Children.Clear();
         _hintMap.Clear();
 
+        var itemFont = isTui ? W11WindowHelper.MonoFont : W11WindowHelper.TextFont;
         var textBrush = new SolidColorBrush(pal.Text);
         var subBrush = new SolidColorBrush(pal.SubText);
         var sepBrush = new SolidColorBrush(pal.Separator);
-        var accentBrush = new SolidColorBrush(pal.Accent);
-        var accentTextBrush = new SolidColorBrush(pal.AccentText);
+        var accentBrush = new SolidColorBrush(isTui ? W11WindowHelper.GetTuiAccentColor(pal) : pal.Accent);
+        var accentTextBrush = new SolidColorBrush(isTui ? W11WindowHelper.GetTuiAccentColor(pal) : pal.AccentText);
         var hoverBg = new LinearGradientBrush(pal.HoverTop, pal.HoverBottom, 90);
-        var hoverBorder = new SolidColorBrush(pal.HoverBorder.Value);
+        var hoverBorder = new SolidColorBrush(isTui ? W11WindowHelper.GetTuiHighlightColor(pal) : pal.HoverBorder.Value);
 
         bool isClipboardMenu = string.Equals(headerTitle, "CLIPBOARD HISTORY", StringComparison.OrdinalIgnoreCase);
         bool useTwoColGrid = !isClipboardMenu && items.Count > 6;
+        double railPad = isTui ? 14 : 0;
 
-        _stack.MinWidth = useTwoColGrid ? (m.MenuTwoColItemWidth * 2) + 4 : m.MenuSingleMinWidth;
-        _stack.MaxWidth = useTwoColGrid ? (m.MenuTwoColItemWidth * 2) + 8 : (isClipboardMenu ? m.CardWidth : m.MenuSingleMaxWidth);
+        _stack.MinWidth = (useTwoColGrid ? (m.MenuTwoColItemWidth * 2) + 4 : m.MenuSingleMinWidth) + railPad;
+        _stack.MaxWidth = (useTwoColGrid ? (m.MenuTwoColItemWidth * 2) + 8 : (isClipboardMenu ? m.CardWidth : m.MenuSingleMaxWidth)) + railPad;
 
-        if (!string.IsNullOrEmpty(headerTitle))
+        Border backBtn = null;
+        if (onBack != null)
+        {
+            backBtn = W11WindowHelper.CreateHeaderIconButton(_cfg, "\uE72B", "Back to toolbar (Backspace)", pal, m, () =>
+            {
+                HideMenu();
+                onBack();
+            });
+        }
+        var closeBtn = W11WindowHelper.CreateHeaderIconButton(_cfg, "\uE711", "Close (Esc)", pal, m, HideMenu);
+
+        if (isTui)
+        {
+            string hdr = string.IsNullOrEmpty(headerTitle) ? "MENU" : headerTitle;
+            _stack.Children.Add(W11WindowHelper.CreateTuiHeaderBar(_cfg, hdr, pal, m, leftBtn: backBtn, rightCloseBtn: closeBtn));
+        }
+        else if (!string.IsNullOrEmpty(headerTitle))
         {
             var hdrGrid = new Grid { Margin = new Thickness(4, 1, 2, 3) };
             hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            if (onBack != null)
+            if (backBtn != null)
             {
-                var backBtn = W11WindowHelper.CreateHeaderIconButton(_cfg, "\uE72B", "Back to toolbar (Backspace)", pal, m, () =>
-                {
-                    HideMenu();
-                    onBack();
-                });
                 backBtn.Margin = new Thickness(0, 0, 4, 0);
                 Grid.SetColumn(backBtn, 0);
                 hdrGrid.Children.Add(backBtn);
@@ -157,7 +172,6 @@ internal sealed class OptionMenuWindow : Window
             Grid.SetColumn(hdrText, 1);
             hdrGrid.Children.Add(hdrText);
 
-            var closeBtn = W11WindowHelper.CreateHeaderIconButton(_cfg, "\uE711", "Close (Esc)", pal, m, HideMenu);
             Grid.SetColumn(closeBtn, 2);
             hdrGrid.Children.Add(closeBtn);
 
@@ -205,7 +219,7 @@ internal sealed class OptionMenuWindow : Window
                 {
                     Width = m.FavTileSize,
                     Height = m.FavTileSize,
-                    CornerRadius = new CornerRadius(4),
+                    CornerRadius = new CornerRadius(isTui ? 2.5 : 4),
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(3, 0, 0, 0),
@@ -234,7 +248,7 @@ internal sealed class OptionMenuWindow : Window
                     tile.Child = new TextBlock
                     {
                         Text = item.Glyph,
-                        FontFamily = W11WindowHelper.TextFont,
+                        FontFamily = itemFont,
                         FontWeight = FontWeights.SemiBold,
                         FontSize = Math.Max(8.5, m.TextFontSize - 1.5),
                         Foreground = item.Accent ? accentTextBrush : textBrush,
@@ -249,7 +263,7 @@ internal sealed class OptionMenuWindow : Window
             var lbl = new TextBlock
             {
                 Text = item.Label,
-                FontFamily = W11WindowHelper.TextFont,
+                FontFamily = itemFont,
                 FontWeight = item.Accent ? FontWeights.SemiBold : FontWeights.Normal,
                 FontSize = m.TextFontSize,
                 Foreground = item.Accent ? accentTextBrush : textBrush,
@@ -266,7 +280,7 @@ internal sealed class OptionMenuWindow : Window
 
             var rowBorder = new Border
             {
-                CornerRadius = new CornerRadius(m.BtnCornerRadius),
+                CornerRadius = new CornerRadius(isTui ? 2.5 : m.BtnCornerRadius),
                 Background = Brushes.Transparent,
                 BorderBrush = Brushes.Transparent,
                 BorderThickness = new Thickness(1),
@@ -298,15 +312,16 @@ internal sealed class OptionMenuWindow : Window
             return rowBorder;
         }
 
+        var bodyHost = new StackPanel { Orientation = Orientation.Vertical };
+
         if (useTwoColGrid)
         {
             int startIdx = 0;
             if (items[0].Accent)
             {
-                // Featured top banner item (e.g., stats summary in TRANSFORM TEXT) spans full width cleanly
                 string h0 = SmartParser.HintForIndex(1);
                 if (items[0].OnClick != null) _hintMap[h0] = items[0].OnClick;
-                _stack.Children.Add(BuildRowBorder(items[0], h0, isTwoCol: false));
+                bodyHost.Children.Add(BuildRowBorder(items[0], h0, isTwoCol: false));
 
                 var div = new Border
                 {
@@ -316,7 +331,7 @@ internal sealed class OptionMenuWindow : Window
                     Margin = new Thickness(4, 2, 4, 2)
                 };
                 RenderOptions.SetEdgeMode(div, EdgeMode.Aliased);
-                _stack.Children.Add(div);
+                bodyHost.Children.Add(div);
                 startIdx = 1;
             }
 
@@ -342,13 +357,12 @@ internal sealed class OptionMenuWindow : Window
                 var rb = BuildRowBorder(item, hint, isTwoCol: true);
                 Grid.SetRow(rb, row);
                 Grid.SetColumn(rb, col);
-                // If the final row has a single item, span both columns so the card silhouette remains 100% symmetrical
                 if (rel == remaining - 1 && col == 0)
                     Grid.SetColumnSpan(rb, 2);
 
                 grid.Children.Add(rb);
             }
-            _stack.Children.Add(grid);
+            bodyHost.Children.Add(grid);
         }
         else
         {
@@ -360,7 +374,7 @@ internal sealed class OptionMenuWindow : Window
                 if (item.OnClick != null)
                     _hintMap[hint] = item.OnClick;
 
-                _stack.Children.Add(BuildRowBorder(item, hint, isTwoCol: false));
+                bodyHost.Children.Add(BuildRowBorder(item, hint, isTwoCol: false));
 
                 if (idx == 1 && item.Accent && items.Count > 1)
                 {
@@ -372,9 +386,19 @@ internal sealed class OptionMenuWindow : Window
                         Margin = new Thickness(4, 2, 4, 2)
                     };
                     RenderOptions.SetEdgeMode(div, EdgeMode.Aliased);
-                    _stack.Children.Add(div);
+                    bodyHost.Children.Add(div);
                 }
             }
+        }
+
+        if (isTui)
+        {
+            _stack.Children.Add(W11WindowHelper.WrapWithTuiSideRails(bodyHost, pal, horizontalPad: 3));
+            _stack.Children.Add(W11WindowHelper.CreateTuiFooterBar(onBack != null ? "Esc · Backspace: ←" : "Esc: close", pal, m, out _));
+        }
+        else
+        {
+            _stack.Children.Add(bodyHost);
         }
 
         if (!IsVisible)

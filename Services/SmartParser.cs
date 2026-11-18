@@ -640,8 +640,10 @@ internal static class SmartParser
         new[]{6, 34, 62, 90}
     };
 
-    public static BitmapSource GenerateQrBitmap(string text, int targetPixelSize = 320)
+    private static bool TryEncodeQrMatrix(string text, out bool[,] modules, out int size)
     {
+        modules = null;
+        size = 0;
         byte[] utf8 = Encoding.UTF8.GetBytes(text ?? "");
         int version = 0;
         for (int v = 1; v <= 20; v++)
@@ -654,7 +656,7 @@ internal static class SmartParser
                 break;
             }
         }
-        if (version == 0) return null;
+        if (version == 0) return false;
 
         int totalCw = TotalCodewords[version];
         int eccPerBlock = EccCodewordsPerBlock[version];
@@ -712,15 +714,17 @@ internal static class SmartParser
                 interleaved.Add(eccBlocks[j][i]);
 
         // Construct matrix
-        int size = version * 4 + 17;
-        bool[,] modules = new bool[size, size];
+        size = version * 4 + 17;
+        modules = new bool[size, size];
         bool[,] isFunc = new bool[size, size];
+        bool[,] mRef = modules;
+        int szRef = size;
 
         void SetFunc(int r, int c, bool dark)
         {
-            if (r >= 0 && r < size && c >= 0 && c < size)
+            if (r >= 0 && r < szRef && c >= 0 && c < szRef)
             {
-                modules[r, c] = dark;
+                mRef[r, c] = dark;
                 isFunc[r, c] = true;
             }
         }
@@ -820,6 +824,13 @@ internal static class SmartParser
         for (int i = 0; i < 8; i++) SetFunc(size - 1 - i, 8, ((formatBits >> i) & 1) != 0);
         for (int i = 8; i < 15; i++) SetFunc(8, size - 15 + i, ((formatBits >> i) & 1) != 0);
         SetFunc(size - 8, 8, true);
+        return true;
+    }
+
+    public static BitmapSource GenerateQrBitmap(string text, int targetPixelSize = 320)
+    {
+        if (!TryEncodeQrMatrix(text, out var modules, out int size))
+            return null;
 
         // Render crisp bitmap with 4-module quiet zone
         int border = 4;
@@ -848,6 +859,41 @@ internal static class SmartParser
         var bmp = BitmapSource.Create(imgPx, imgPx, 96, 96, PixelFormats.Bgra32, null, pixels, stride);
         bmp.Freeze();
         return bmp;
+    }
+
+    public static string GenerateAsciiQr(string text)
+    {
+        if (!TryEncodeQrMatrix(text, out var modules, out int size))
+            return "";
+
+        int border = 1;
+        int total = size + border * 2;
+        bool IsDark(int r, int c)
+        {
+            int mr = r - border;
+            int mc = c - border;
+            return mr >= 0 && mr < size && mc >= 0 && mc < size && modules[mr, mc];
+        }
+
+        var sb = new StringBuilder();
+        for (int r = 0; r < total; r += 2)
+        {
+            for (int c = 0; c < total; c++)
+            {
+                bool top = IsDark(r, c);
+                bool bot = (r + 1 < total) && IsDark(r + 1, c);
+                // Light-on-dark or dark-on-light block art (inverted for terminal dark surfaces: lit = quiet/module)
+                sb.Append((top, bot) switch
+                {
+                    (true, true)   => '█',
+                    (true, false)  => '▀',
+                    (false, true)  => '▄',
+                    _              => ' '
+                });
+            }
+            sb.AppendLine();
+        }
+        return sb.ToString().TrimEnd('\r', '\n');
     }
 
     private static byte[] BuildRsDivisor(int degree)

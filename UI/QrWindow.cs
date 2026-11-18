@@ -33,70 +33,84 @@ internal sealed class QrWindow : Window
         _cfg = cfg;
         var pal = cfg.Palette;
         var m = W11WindowHelper.GetFlyoutMetrics(cfg);
+        bool isTui = cfg.IsNeonTui;
 
         W11WindowHelper.ConfigureDwmFlyoutChrome(this);
 
         var stack = new StackPanel { Orientation = Orientation.Vertical };
 
-        var header = new Grid { Margin = new Thickness(0, 0, 0, 7) };
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
+        Border backBtn = null;
         if (onBackToToolbar != null)
         {
-            var backBtn = W11WindowHelper.CreateHeaderIconButton(cfg, "\uE72B", "Back to toolbar (Backspace)", pal, m, () =>
+            backBtn = W11WindowHelper.CreateHeaderIconButton(cfg, "\uE72B", "Back to toolbar (Backspace)", pal, m, () =>
             {
                 Dismiss();
                 onBackToToolbar();
             });
-            backBtn.Margin = new Thickness(0, 0, 5, 0);
-            Grid.SetColumn(backBtn, 0);
-            header.Children.Add(backBtn);
         }
-
-        var title = new TextBlock
-        {
-            Text = "QR CODE",
-            FontFamily = W11WindowHelper.TextFont,
-            FontWeight = FontWeights.Bold,
-            FontSize = m.MenuHeaderFontSize,
-            Foreground = new SolidColorBrush(pal.SubText),
-            VerticalAlignment = VerticalAlignment.Center
-        };
         var charBadge = new Border
         {
-            CornerRadius = new CornerRadius(4),
+            CornerRadius = new CornerRadius(isTui ? 2.5 : 4),
             Padding = new Thickness(5, 1, 5, 1),
             Background = new SolidColorBrush(pal.PillFill),
-            BorderBrush = new SolidColorBrush(pal.PillBorder),
+            BorderBrush = new SolidColorBrush(isTui ? W11WindowHelper.GetTuiHighlightColor(pal) : pal.PillBorder),
             BorderThickness = new Thickness(1),
-            Margin = new Thickness(6, 0, 4, 0),
+            Margin = new Thickness(4, 0, 2, 0),
             VerticalAlignment = VerticalAlignment.Center,
             Child = new TextBlock
             {
-                Text = $"{sourceText.Length} chars",
-                FontFamily = W11WindowHelper.TextFont,
+                Text = $"{sourceText.Length}ch",
+                FontFamily = isTui ? W11WindowHelper.MonoFont : W11WindowHelper.TextFont,
                 FontSize = m.CardSubFontSize - 0.5,
                 Foreground = new SolidColorBrush(pal.SubText)
             }
         };
         var closeBtn = W11WindowHelper.CreateHeaderIconButton(cfg, "\uE711", "Close (Esc)", pal, m, () => Dismiss());
-        Grid.SetColumn(title, 1);
-        Grid.SetColumn(charBadge, 2);
-        Grid.SetColumn(closeBtn, 3);
-        header.Children.Add(title);
-        header.Children.Add(charBadge);
-        header.Children.Add(closeBtn);
-        stack.Children.Add(header);
+
+        if (isTui)
+        {
+            stack.Children.Add(W11WindowHelper.CreateTuiHeaderBar(cfg, "QR CODE", pal, m, leftBtn: backBtn, rightBadgeOrBtn: charBadge, rightCloseBtn: closeBtn));
+        }
+        else
+        {
+            var header = new Grid { Margin = new Thickness(0, 0, 0, 7) };
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            if (backBtn != null)
+            {
+                backBtn.Margin = new Thickness(0, 0, 5, 0);
+                Grid.SetColumn(backBtn, 0);
+                header.Children.Add(backBtn);
+            }
+
+            var title = new TextBlock
+            {
+                Text = "QR CODE",
+                FontFamily = W11WindowHelper.TextFont,
+                FontWeight = FontWeights.Bold,
+                FontSize = m.MenuHeaderFontSize,
+                Foreground = new SolidColorBrush(pal.SubText),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(title, 1);
+            Grid.SetColumn(charBadge, 2);
+            Grid.SetColumn(closeBtn, 3);
+            header.Children.Add(title);
+            header.Children.Add(charBadge);
+            header.Children.Add(closeBtn);
+            stack.Children.Add(header);
+        }
 
         var imgFrame = new Border
         {
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(isTui ? 4 : 8),
             Background = Brushes.White,
-            Padding = new Thickness(8),
-            BorderBrush = new SolidColorBrush(pal.Separator),
+            Padding = new Thickness(7),
+            Margin = new Thickness(0, isTui ? 4 : 0, 0, 0),
+            BorderBrush = new SolidColorBrush(isTui ? W11WindowHelper.GetTuiHighlightColor(pal) : pal.Separator),
             BorderThickness = new Thickness(1),
             HorizontalAlignment = HorizontalAlignment.Center,
             Child = new Image
@@ -108,13 +122,12 @@ internal sealed class QrWindow : Window
             }
         };
         RenderOptions.SetBitmapScalingMode(imgFrame, BitmapScalingMode.NearestNeighbor);
-        stack.Children.Add(imgFrame);
 
         var btnRow = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0, 8, 0, 0)
+            Margin = new Thickness(0, 7, 0, isTui ? 4 : 0)
         };
 
         void CopyQr()
@@ -145,16 +158,43 @@ internal sealed class QrWindow : Window
             Dismiss();
         }
 
+        void CopyAsciiQr()
+        {
+            string ascii = SmartParser.GenerateAsciiQr(sourceText);
+            if (!string.IsNullOrEmpty(ascii))
+            {
+                UiaHelper.SetClipboardUnicodeText(ascii);
+                onToast?.Invoke("Half-block ASCII QR copied");
+            }
+            Dismiss();
+        }
+
         _hintMap["1"] = CopyQr;
         _hintMap["2"] = SaveQr;
+        _hintMap["3"] = CopyAsciiQr;
 
-        btnRow.Children.Add(W11WindowHelper.CreateActionPillButton(cfg, "\uE8C8", "Copy QR", "1", isPrimary: true, pal, m, CopyQr));
-        btnRow.Children.Add(W11WindowHelper.CreateActionPillButton(cfg, "\uE74E", "Save PNG", "2", isPrimary: false, pal, m, SaveQr));
-        stack.Children.Add(btnRow);
+        btnRow.Children.Add(W11WindowHelper.CreateActionPillButton(cfg, "\uE8C8", "PNG", "1", isPrimary: true, pal, m, CopyQr));
+        btnRow.Children.Add(W11WindowHelper.CreateActionPillButton(cfg, "\uE74E", "Save", "2", isPrimary: false, pal, m, SaveQr));
+        btnRow.Children.Add(W11WindowHelper.CreateActionPillButton(cfg, null, "▀▄ ASCII", "3", isPrimary: false, pal, m, CopyAsciiQr));
 
-        double padX = Math.Round(m.CardPadding.Left * 3.0);
-        double padY = Math.Round(m.CardPadding.Top * 2.5);
+        if (isTui)
+        {
+            var bodyContent = new StackPanel { Orientation = Orientation.Vertical };
+            bodyContent.Children.Add(imgFrame);
+            bodyContent.Children.Add(btnRow);
+            stack.Children.Add(W11WindowHelper.WrapWithTuiSideRails(bodyContent, pal, horizontalPad: 6));
+            stack.Children.Add(W11WindowHelper.CreateTuiFooterBar(onBackToToolbar != null ? "Esc · Backspace: ←" : "Esc: close", pal, m, out _));
+        }
+        else
+        {
+            stack.Children.Add(imgFrame);
+            stack.Children.Add(btnRow);
+        }
+
+        double padX = Math.Round(m.CardPadding.Left * (isTui ? 1.5 : 3.0));
+        double padY = Math.Round(m.CardPadding.Top * (isTui ? 1.5 : 2.5));
         var topHighlight = W11WindowHelper.CreateTopHighlight(pal, topNegativeMargin: -padY);
+        topHighlight.Visibility = isTui ? Visibility.Collapsed : Visibility.Visible;
 
         var inner = new Grid();
         inner.Children.Add(topHighlight);
@@ -175,7 +215,7 @@ internal sealed class QrWindow : Window
     public void ShowAt(int screenX, int screenY, Native.RECT primaryRect = default)
     {
         var m = W11WindowHelper.GetFlyoutMetrics(_cfg);
-        W11WindowHelper.MakeNonActivatingFlyout(this, _cfg.Palette, smallCorners: m.SmallWindowCorners);
+        W11WindowHelper.MakeNonActivatingFlyout(this, _cfg.Palette, smallCorners: m.SmallWindowCorners, neonTui: _cfg.IsNeonTui);
         Show();
         UpdateLayout();
 

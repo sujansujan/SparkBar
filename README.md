@@ -22,6 +22,9 @@
 
 - **⚡ Instantaneous Pre-Warmed DWM Flyouts (`< 25 ms`)**
   - Uses persistent, pre-warmed Win32 `HWND`s with native Windows 11 Desktop Window Manager (`DWMWA_WINDOW_CORNER_PREFERENCE`, `DWMWA_BORDER_COLOR`, and Mica/Acrylic backdrops) instead of slow software-layered windows.
+- **🎨 Two Built-In Popup Styles (`neontui` & `classic`)**
+  - **Neon TUI (`neontui`, default)**: Icon-first cells framed in `Cascadia Mono` Unicode box borders (`╭─┬─╮` / `├─┤` / `╰─╯`) with **Calculate/Convert (`░▒▓ = 77.7 mi ▓▒░`)** and **Word Count (`░▒▓ 1w·7c ▓▒░`)** embedded directly in the **top ASCII border**, plus a **living bottom-border hover ticker** (`╰─ ▸ Action [Hint] ──╯`) so you get zero floating-tooltip overlap.
+  - **Classic Fluent (`classic`)**: Clean Windows 11 glass cards with hover tooltips—switchable anytime in **Settings → General → Popup style**.
 - **📐 Compact Two-Layer Smart Deck & Unified Flyout Design (`mini`, `compact`, `normal`, `large`)**
   - **Two-Layer Smart Layout**: Cuts horizontal mouse travel in half by placing **selection-relevant actions** (Contextual URL/Math/Unit/Path/Color/Define pills + `Copy`/`Cut`/`Paste` + `Default Search`) in the **lower row right next to your cursor**, and **secondary utilities** (`+Copy`, `QR`, `...`, `Translate`, `Aa`) in the **upper row**.
   - **Unified Size Scaling & Compact 2-Column Submenus**: Every flyout—Main Toolbar, **Search With**, symmetrical **2-Column Transform Text (`Aa`)**, **In-App Result Card**, **QR Code**, **Toast**, and **Tray Menu**—shares a unified `FlyoutMetrics` design system across **Mini** (`20px`), **Compact** (`24px`, default), **Normal** (`29px`), and **Large** (`33px`) presets.
@@ -44,8 +47,8 @@
 - **📋 Lightweight Clipboard History Ring (`Ctrl + Alt + V`)**
   - Keeps a bounded ring of your last 12 copied snippets (`< 48 KB` memory cap). Right-click **Paste** on the toolbar or press `Ctrl + Alt + V` to paste any recent clip or join all clips.
   - Automatically tags temporary fallback probes with Windows' `ExcludeClipboardContentFromMonitorProcessing` / `CanIncludeInClipboardHistory = 0` flags so your Windows `Win + V` history stays clean.
-- **📱 100% Offline QR Code Generator**
-  - Built-in pure C# ISO/IEC 18004 QR Code encoder (Versions 1–20, Reed-Solomon GF(256)) generates crisp QR codes in `< 1 ms` offline with **Copy Image** and **Save PNG** actions—no third-party server required.
+- **📱 100% Offline QR Code Generator (PNG + Unicode Half-Block ASCII)**
+  - Built-in pure C# ISO/IEC 18004 QR Code encoder (Versions 1–20, Reed-Solomon GF(256)) generates crisp QR codes in `< 1 ms` offline with **Copy PNG**, **Save PNG**, and **1-click Copy `▀▄ ASCII` QR** for Markdown/code comments—no third-party server required.
 - **🔍 Unified Search Engines & Desktop App URI Actions**
   - Pin your favorite search engines with automatic high-DPI favicon caching, or trigger installed desktop apps directly via custom URI schemes (`obsidian://`, `vscode://`, `spotify:`, `es:`).
 

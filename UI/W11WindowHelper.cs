@@ -48,6 +48,223 @@ internal static class W11WindowHelper
 {
     public static readonly FontFamily TextFont = new("Segoe UI Variable Text, Segoe UI");
     public static readonly FontFamily DisplayFont = new("Segoe UI Variable Display, Segoe UI");
+    public static readonly FontFamily MonoFont = new("Cascadia Mono, Cascadia Code, Consolas, Segoe UI");
+
+    public static Color GetTuiAccentColor(ThemePalette pal) =>
+        pal.IsLight ? Color.FromRgb(0x08, 0x91, 0xB2) : Color.FromRgb(0x22, 0xD3, 0xEE);
+
+    public static Color GetTuiFrameColor(ThemePalette pal) =>
+        pal.IsLight ? Color.FromRgb(0x0E, 0x74, 0x90) : Color.FromRgb(0x16, 0x4E, 0x63);
+
+    public static Color GetTuiHighlightColor(ThemePalette pal) =>
+        pal.IsLight ? Color.FromRgb(0x02, 0x84, 0xC7) : Color.FromRgb(0x38, 0xBD, 0xF8);
+
+    public static UIElement CreateTuiDashFill(char ch, Brush brush, double fontSize, double rowHeight)
+    {
+        var tb = new TextBlock
+        {
+            Text = new string(ch, 160),
+            FontFamily = MonoFont,
+            FontSize = fontSize,
+            LineHeight = rowHeight,
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+            Foreground = brush,
+            SnapsToDevicePixels = true
+        };
+        TextOptions.SetTextFormattingMode(tb, TextFormattingMode.Display);
+        var canvas = new Canvas
+        {
+            Height = rowHeight,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Center,
+            ClipToBounds = true,
+            IsHitTestVisible = false
+        };
+        Canvas.SetLeft(tb, 0);
+        Canvas.SetTop(tb, 0);
+        canvas.Children.Add(tb);
+        return canvas;
+    }
+
+    public static Grid CreateTuiHorizontalDivider(ThemePalette pal, FlyoutMetrics m, char leftCh = '├', char fillCh = '─', char rightCh = '┤')
+    {
+        double fSz = Math.Max(9.5, m.MenuHeaderFontSize + 1.5);
+        double rowH = Math.Ceiling(fSz * 1.25);
+        var frameBrush = new SolidColorBrush(GetTuiHighlightColor(pal));
+
+        var g = new Grid { Height = rowH, HorizontalAlignment = HorizontalAlignment.Stretch, SnapsToDevicePixels = true };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        TextBlock MakeEnd(char ch) => new()
+        {
+            Text = ch.ToString(),
+            FontFamily = MonoFont,
+            FontSize = fSz,
+            LineHeight = rowH,
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+            Foreground = frameBrush,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        var left = MakeEnd(leftCh);
+        var mid = CreateTuiDashFill(fillCh, frameBrush, fSz, rowH);
+        var right = MakeEnd(rightCh);
+        Grid.SetColumn(left, 0);
+        Grid.SetColumn(mid, 1);
+        Grid.SetColumn(right, 2);
+        g.Children.Add(left);
+        g.Children.Add(mid);
+        g.Children.Add(right);
+        return g;
+    }
+
+    public static Grid CreateTuiHeaderBar(
+        ConfigService cfg,
+        string title,
+        ThemePalette pal,
+        FlyoutMetrics m,
+        UIElement leftBtn = null,
+        UIElement rightBadgeOrBtn = null,
+        UIElement rightCloseBtn = null)
+    {
+        double fSz = Math.Max(9.5, m.MenuHeaderFontSize + 1.0);
+        double rowH = Math.Max(18, Math.Ceiling(fSz * 1.45));
+        var frameBrush = new SolidColorBrush(GetTuiHighlightColor(pal));
+        var accentBrush = new SolidColorBrush(GetTuiAccentColor(pal));
+
+        var g = new Grid { MinHeight = rowH, HorizontalAlignment = HorizontalAlignment.Stretch, SnapsToDevicePixels = true };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // ╭─
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // leftBtn
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // ░▒▓ TITLE ▓▒░
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // ───
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // rightBadgeOrBtn
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // rightCloseBtn
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // ─╮
+
+        TextBlock MakeMono(string txt, Brush fg, bool bold = false)
+        {
+            var tb = new TextBlock
+            {
+                Text = txt,
+                FontFamily = MonoFont,
+                FontWeight = bold ? FontWeights.Bold : FontWeights.Normal,
+                FontSize = fSz,
+                LineHeight = rowH,
+                LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+                Foreground = fg,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            TextOptions.SetTextFormattingMode(tb, TextFormattingMode.Display);
+            return tb;
+        }
+
+        var c0 = MakeMono("╭─", frameBrush);
+        Grid.SetColumn(c0, 0);
+        g.Children.Add(c0);
+
+        if (leftBtn != null)
+        {
+            var spLeft = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            spLeft.Children.Add(leftBtn);
+            spLeft.Children.Add(MakeMono("─", frameBrush));
+            Grid.SetColumn(spLeft, 1);
+            g.Children.Add(spLeft);
+        }
+
+        var tag = MakeMono($"░▒▓ {title} ▓▒░ ", accentBrush, bold: true);
+        Grid.SetColumn(tag, 2);
+        g.Children.Add(tag);
+
+        var fill = CreateTuiDashFill('─', frameBrush, fSz, rowH);
+        Grid.SetColumn(fill, 3);
+        g.Children.Add(fill);
+
+        if (rightBadgeOrBtn != null)
+        {
+            var w = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(3, 0, 2, 0) };
+            w.Children.Add(rightBadgeOrBtn);
+            Grid.SetColumn(w, 4);
+            g.Children.Add(w);
+        }
+
+        if (rightCloseBtn != null)
+        {
+            var spRight = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 2, 0) };
+            spRight.Children.Add(rightCloseBtn);
+            Grid.SetColumn(spRight, 5);
+            g.Children.Add(spRight);
+        }
+
+        var c6 = MakeMono("╮", frameBrush);
+        Grid.SetColumn(c6, 6);
+        g.Children.Add(c6);
+        return g;
+    }
+
+    public static Grid CreateTuiFooterBar(string defaultText, ThemePalette pal, FlyoutMetrics m, out TextBlock tickerTb)
+    {
+        double fSz = Math.Max(9.0, m.MenuHeaderFontSize + 0.5);
+        double rowH = Math.Ceiling(fSz * 1.4);
+        var frameBrush = new SolidColorBrush(GetTuiHighlightColor(pal));
+        var accentBrush = new SolidColorBrush(GetTuiAccentColor(pal));
+
+        var g = new Grid { Height = rowH, HorizontalAlignment = HorizontalAlignment.Stretch, SnapsToDevicePixels = true };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // ╰─
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // ticker
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // ───
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // ╯
+
+        var c0 = new TextBlock
+        {
+            Text = "╰─ ",
+            FontFamily = MonoFont,
+            FontSize = fSz,
+            LineHeight = rowH,
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+            Foreground = frameBrush,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(c0, 0);
+        g.Children.Add(c0);
+
+        tickerTb = new TextBlock
+        {
+            Text = defaultText,
+            FontFamily = MonoFont,
+            FontWeight = FontWeights.SemiBold,
+            FontSize = fSz - 0.5,
+            LineHeight = rowH,
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+            Foreground = accentBrush,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxWidth = 260,
+            Margin = new Thickness(0, 0, 4, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        TextOptions.SetTextFormattingMode(tickerTb, TextFormattingMode.Display);
+        Grid.SetColumn(tickerTb, 1);
+        g.Children.Add(tickerTb);
+
+        var fill = CreateTuiDashFill('─', frameBrush, fSz, rowH);
+        Grid.SetColumn(fill, 2);
+        g.Children.Add(fill);
+
+        var c3 = new TextBlock
+        {
+            Text = "╯",
+            FontFamily = MonoFont,
+            FontSize = fSz,
+            LineHeight = rowH,
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+            Foreground = frameBrush,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(c3, 3);
+        g.Children.Add(c3);
+        return g;
+    }
 
     public static FlyoutMetrics GetFlyoutMetrics(ConfigService cfg)
     {
@@ -189,7 +406,7 @@ internal static class W11WindowHelper
         row.Children.Add(new TextBlock
         {
             Text = label,
-            FontFamily = TextFont,
+            FontFamily = cfg.IsNeonTui ? MonoFont : TextFont,
             FontWeight = FontWeights.SemiBold,
             FontSize = m.TextFontSize,
             Foreground = new SolidColorBrush(isPrimary ? pal.AccentText : pal.Text),
@@ -203,7 +420,7 @@ internal static class W11WindowHelper
         {
             Height = m.BtnHeight + 2,
             Padding = new Thickness(m.TextPadX, 0, m.TextPadX, 0),
-            CornerRadius = new CornerRadius(m.BtnCornerRadius),
+            CornerRadius = new CornerRadius(cfg.IsNeonTui ? 2.5 : m.BtnCornerRadius),
             BorderThickness = new Thickness(1),
             Margin = new Thickness(0, 0, 4, 0),
             Cursor = Cursors.Hand,
@@ -398,7 +615,43 @@ internal static class W11WindowHelper
         WindowChrome.SetWindowChrome(w, chrome);
     }
 
-    public static void MakeNonActivatingFlyout(Window w, ThemePalette pal, bool clickThrough = false, bool smallCorners = false)
+    public static Grid WrapWithTuiSideRails(UIElement content, ThemePalette pal, double horizontalPad = 5)
+    {
+        if (content is FrameworkElement fe && fe.Parent is Panel oldParent)
+            oldParent.Children.Remove(content);
+
+        var frameBrush = new SolidColorBrush(GetTuiHighlightColor(pal));
+        var g = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch, SnapsToDevicePixels = true };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        Border MakeRail(Thickness margin)
+        {
+            var r = new Border
+            {
+                Width = 1.2,
+                Background = frameBrush,
+                Margin = margin,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                SnapsToDevicePixels = true
+            };
+            RenderOptions.SetEdgeMode(r, EdgeMode.Aliased);
+            return r;
+        }
+
+        var leftRail = MakeRail(new Thickness(2.1, -1.5, horizontalPad, -1.5));
+        var rightRail = MakeRail(new Thickness(horizontalPad, -1.5, 2.1, -1.5));
+        Grid.SetColumn(leftRail, 0);
+        Grid.SetColumn(content, 1);
+        Grid.SetColumn(rightRail, 2);
+        g.Children.Add(leftRail);
+        g.Children.Add(content);
+        g.Children.Add(rightRail);
+        return g;
+    }
+
+    public static void MakeNonActivatingFlyout(Window w, ThemePalette pal, bool clickThrough = false, bool smallCorners = false, bool neonTui = false)
     {
         var helper = new WindowInteropHelper(w);
         IntPtr hwnd = helper.EnsureHandle();
@@ -408,7 +661,7 @@ internal static class W11WindowHelper
         Native.AddExStyle(hwnd, exAdd);
 
         w.Background = new SolidColorBrush(pal.BgBottom);
-        ApplyDwmFlyoutAttributes(hwnd, pal, smallCorners);
+        ApplyDwmFlyoutAttributes(hwnd, pal, smallCorners, neonTui);
 
         var src = HwndSource.FromHwnd(hwnd);
         if (src != null)
@@ -418,12 +671,13 @@ internal static class W11WindowHelper
         }
     }
 
-    public static void ApplyDwmFlyoutAttributes(IntPtr hwnd, ThemePalette pal, bool smallCorners = false)
+    public static void ApplyDwmFlyoutAttributes(IntPtr hwnd, ThemePalette pal, bool smallCorners = false, bool neonTui = false)
     {
         if (hwnd == IntPtr.Zero || pal == null) return;
         Native.SetDwm(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, pal.IsLight ? 0 : 1);
-        Native.SetDwm(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, smallCorners ? DWMWCP_ROUNDSMALL : DWMWCP_ROUND);
-        int bgrBorder = (pal.Border.B << 16) | (pal.Border.G << 8) | pal.Border.R;
+        Native.SetDwm(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, (smallCorners || neonTui) ? DWMWCP_ROUNDSMALL : DWMWCP_ROUND);
+        Color bCol = neonTui ? GetTuiFrameColor(pal) : pal.Border;
+        int bgrBorder = (bCol.B << 16) | (bCol.G << 8) | bCol.R;
         Native.SetDwm(hwnd, DWMWA_BORDER_COLOR, bgrBorder);
     }
 

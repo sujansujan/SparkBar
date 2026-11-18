@@ -128,6 +128,8 @@ public sealed class ConfigService
     public HashSet<string> ExcludedExes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public string ThemeMode { get; set; } = "midnight";
+    public string PopupStyle { get; set; } = "neontui"; // neontui, classic
+    public bool IsNeonTui => string.Equals(PopupStyle, "neontui", StringComparison.OrdinalIgnoreCase);
     public string PopupSize { get; set; } = "compact"; // mini, compact, normal, large
     public bool TwoLayerPopup { get; set; } = true;
     public string TranslateTargetLang { get; set; } = "en";
@@ -276,6 +278,10 @@ public sealed class ConfigService
         if (tm is "light" or "dark" or "auto" or "midnight" or "slate")
             ThemeMode = tm;
 
+        string st = ReadIni("General", "PopupStyle", PopupStyle).Trim().ToLowerInvariant();
+        if (st is "neontui" or "classic")
+            PopupStyle = st;
+
         string ps = ReadIni("General", "PopupSize", PopupSize).Trim().ToLowerInvariant();
         if (ps is "mini" or "compact" or "normal" or "large")
             PopupSize = ps;
@@ -299,6 +305,7 @@ public sealed class ConfigService
     {
         WriteIni("General", "DefaultSearchEngine", DefaultSearchEngine);
         WriteIni("General", "ThemeMode", ThemeMode);
+        WriteIni("General", "PopupStyle", PopupStyle);
         WriteIni("General", "PopupSize", PopupSize);
         WriteIni("General", "TwoLayerPopup", TwoLayerPopup ? "1" : "0");
         WriteIni("General", "TranslateTargetLang", TranslateTargetLang);

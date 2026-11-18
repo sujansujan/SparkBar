@@ -40,9 +40,14 @@ internal sealed class PopupToolbarWindow : Window
     private readonly ConfigService _cfg;
     private readonly Border _card;
     private readonly StackPanel _deckPanel;
+    private readonly StackPanel _upperSectionStack;
+    private readonly Grid _tuiTopHost;
+    private readonly Grid _rowsHost;
+    private readonly StackPanel _rowsStack;
     private readonly Grid _upperRow;
     private readonly Border _layerDivider;
     private readonly Grid _lowerRow;
+    private readonly Grid _tuiBottomHost;
     private readonly Border _topHighlight;
     private readonly DispatcherTimer _autoHideTimer;
     private readonly Dictionary<string, Action> _hintMap = new(StringComparer.OrdinalIgnoreCase);
@@ -50,6 +55,8 @@ internal sealed class PopupToolbarWindow : Window
     private readonly List<(Border ButtonBorder, PopupActionItem Item, string Hint)> _buttonEntries = new();
     private readonly Action<string, string> _onReorder;
     private readonly HoverTipWindow _hoverTip;
+    private TextBlock _tuiTickerTb;
+    private string _tuiDefaultTicker = "✦ SparkBar";
 
     private PopupActionItem _dragItem;
     private Point _dragStartScreen;
@@ -101,14 +108,36 @@ internal sealed class PopupToolbarWindow : Window
             VerticalAlignment = VerticalAlignment.Center
         };
 
+        _rowsStack = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        _tuiTopHost = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch, Visibility = Visibility.Collapsed };
+        _rowsHost = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
+        _upperSectionStack = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        _upperSectionStack.Children.Add(_tuiTopHost);
+        _upperSectionStack.Children.Add(_rowsHost);
+
+        _tuiBottomHost = new Grid { HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed };
+        _tuiBottomHost.SetBinding(WidthProperty, new System.Windows.Data.Binding(nameof(ActualWidth))
+        {
+            Source = _upperSectionStack,
+            Mode = System.Windows.Data.BindingMode.OneWay
+        });
+
         _deckPanel = new StackPanel
         {
             Orientation = Orientation.Vertical,
             VerticalAlignment = VerticalAlignment.Center
         };
-        _deckPanel.Children.Add(_upperRow);
-        _deckPanel.Children.Add(_layerDivider);
-        _deckPanel.Children.Add(_lowerRow);
+        _deckPanel.Children.Add(_upperSectionStack);
+        _deckPanel.Children.Add(_tuiBottomHost);
 
         _topHighlight = new Border
         {
@@ -152,7 +181,7 @@ internal sealed class PopupToolbarWindow : Window
 
     public void PreWarm()
     {
-        W11WindowHelper.MakeNonActivatingFlyout(this, _cfg.Palette);
+        W11WindowHelper.MakeNonActivatingFlyout(this, _cfg.Palette, neonTui: _cfg.IsNeonTui);
         Hwnd = new WindowInteropHelper(this).Handle;
         Left = -32000;
         Top = -32000;
@@ -266,26 +295,66 @@ internal sealed class PopupToolbarWindow : Window
     {
         var pal = _cfg.Palette;
         var m = GetMetrics();
+        bool isTui = _cfg.IsNeonTui;
 
         Background = new SolidColorBrush(pal.BgBottom);
         if (Hwnd != IntPtr.Zero)
-            W11WindowHelper.ApplyDwmFlyoutAttributes(Hwnd, pal, smallCorners: m.SmallWindowCorners);
+            W11WindowHelper.ApplyDwmFlyoutAttributes(Hwnd, pal, smallCorners: m.SmallWindowCorners, neonTui: isTui);
 
-        _card.Padding = m.CardPadding;
+        _card.Padding = isTui
+            ? new Thickness(m.CardPadding.Left + 1, m.CardPadding.Top, m.CardPadding.Right + 1, m.CardPadding.Bottom)
+            : m.CardPadding;
         _card.Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90);
+        _topHighlight.Visibility = isTui ? Visibility.Collapsed : Visibility.Visible;
         _topHighlight.Background = new SolidColorBrush(pal.IsLight ? Colors.White : Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
         _layerDivider.Background = new SolidColorBrush(Color.FromArgb(160, pal.Separator.R, pal.Separator.G, pal.Separator.B));
 
+        (_upperRow.Parent as Panel)?.Children.Remove(_upperRow);
+        (_lowerRow.Parent as Panel)?.Children.Remove(_lowerRow);
+        (_layerDivider.Parent as Panel)?.Children.Remove(_layerDivider);
         _upperRow.Children.Clear();
         _upperRow.ColumnDefinitions.Clear();
         _lowerRow.Children.Clear();
         _lowerRow.ColumnDefinitions.Clear();
+        _rowsStack.Children.Clear();
+        _rowsHost.Children.Clear();
+        _tuiTopHost.Children.Clear();
+        _tuiTopHost.ColumnDefinitions.Clear();
+        _tuiBottomHost.Children.Clear();
         _visibleTips.Clear();
         _hintMap.Clear();
         _buttonEntries.Clear();
+        _tuiTickerTb = null;
+
+        PopupActionItem calcItem = null;
+        PopupActionItem statsItem = null;
+        var deckActions = new List<PopupActionItem>(actions.Count);
 
         foreach (var a in actions)
-            _visibleTips.Add(a.Tip);
+        {
+            if (isTui && calcItem == null &&
+                (a.Tip.StartsWith("Copy conversion:", StringComparison.OrdinalIgnoreCase) ||
+                 a.Tip.StartsWith("Copy result:", StringComparison.OrdinalIgnoreCase)))
+            {
+                calcItem = a;
+            }
+            else if (isTui && statsItem == null &&
+                     a.Tip.StartsWith("Words:", StringComparison.OrdinalIgnoreCase))
+            {
+                statsItem = a;
+            }
+            else
+            {
+                deckActions.Add(a);
+                _visibleTips.Add(a.Tip);
+            }
+        }
+
+        if (isTui && deckActions.Count == 0 && (calcItem != null || statsItem != null))
+        {
+            if (calcItem != null) { deckActions.Add(calcItem); _visibleTips.Add(calcItem.Tip); calcItem = null; }
+            if (statsItem != null) { deckActions.Add(statsItem); _visibleTips.Add(statsItem.Tip); statsItem = null; }
+        }
 
         var textBrush = new SolidColorBrush(pal.Text);
         var accentTextBrush = new SolidColorBrush(pal.AccentText);
@@ -297,7 +366,9 @@ internal sealed class PopupToolbarWindow : Window
         var pillBorder = new SolidColorBrush(pal.PillBorder);
         var surfaceBrush = new SolidColorBrush(pal.Surface);
         var iconFont = new FontFamily(_cfg.IconFontFamily);
-        var textFont = new FontFamily("Segoe UI Variable Text, Segoe UI");
+        var textFont = isTui ? W11WindowHelper.MonoFont : new FontFamily("Segoe UI Variable Text, Segoe UI");
+        var tuiFrameBrush = new SolidColorBrush(W11WindowHelper.GetTuiHighlightColor(pal));
+        var tuiAccentBrush = new SolidColorBrush(W11WindowHelper.GetTuiAccentColor(pal));
 
         int hintCounter = 1;
 
@@ -316,18 +387,37 @@ internal sealed class PopupToolbarWindow : Window
                 if (prevGrp != -1 && act.Group != prevGrp)
                 {
                     targetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                    var vSep = new Border
+                    UIElement sepEl;
+                    if (isTui)
                     {
-                        Width = 1,
-                        Height = m.SepHeight,
-                        Background = sepBrush,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        SnapsToDevicePixels = true,
-                        Margin = new Thickness(1.5, 0, 1.5, 0)
-                    };
-                    RenderOptions.SetEdgeMode(vSep, EdgeMode.Aliased);
-                    Grid.SetColumn(vSep, colIdx++);
-                    targetGrid.Children.Add(vSep);
+                        sepEl = new TextBlock
+                        {
+                            Text = "│",
+                            FontFamily = W11WindowHelper.MonoFont,
+                            FontSize = m.TextFontSize + 1,
+                            Foreground = tuiFrameBrush,
+                            Opacity = 0.65,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Margin = new Thickness(0.5, 0, 0.5, 0),
+                            IsHitTestVisible = false
+                        };
+                    }
+                    else
+                    {
+                        var vSep = new Border
+                        {
+                            Width = 1,
+                            Height = m.SepHeight,
+                            Background = sepBrush,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            SnapsToDevicePixels = true,
+                            Margin = new Thickness(1.5, 0, 1.5, 0)
+                        };
+                        RenderOptions.SetEdgeMode(vSep, EdgeMode.Aliased);
+                        sepEl = vSep;
+                    }
+                    Grid.SetColumn(sepEl, colIdx++);
+                    targetGrid.Children.Add(sepEl);
                 }
                 prevGrp = act.Group;
 
@@ -509,7 +599,12 @@ internal sealed class PopupToolbarWindow : Window
                 {
                     ApplyNormalVisual(false, false);
                     if (!_isDragging)
-                        _hoverTip.HideTip();
+                    {
+                        if (_cfg.IsNeonTui && _tuiTickerTb != null)
+                            _tuiTickerTb.Text = _tuiDefaultTicker;
+                        else
+                            _hoverTip.HideTip();
+                    }
                 };
 
                 btnBorder.MouseLeftButtonDown += (_, e) =>
@@ -583,21 +678,154 @@ internal sealed class PopupToolbarWindow : Window
             }
         }
 
-        if (_cfg.TwoLayerPopup && actions.Count >= 4)
+        if (_cfg.TwoLayerPopup && deckActions.Count >= 4)
         {
-            PartitionTwoLayersSymmetrically(actions, m, out var lowerItems, out var upperItems);
+            PartitionTwoLayersSymmetrically(deckActions, m, out var lowerItems, out var upperItems);
 
             // Number lower (relevant) row 1..K first so primary actions have 1, 2, 3... shortcuts
             PopulateRow(_lowerRow, lowerItems);
             PopulateRow(_upperRow, upperItems);
             _upperRow.Visibility = Visibility.Visible;
-            _layerDivider.Visibility = Visibility.Visible;
+
+            if (isTui)
+            {
+                _rowsStack.Children.Add(W11WindowHelper.WrapWithTuiSideRails(_upperRow, pal, horizontalPad: 3));
+                _rowsStack.Children.Add(W11WindowHelper.CreateTuiHorizontalDivider(pal, m));
+                _rowsStack.Children.Add(W11WindowHelper.WrapWithTuiSideRails(_lowerRow, pal, horizontalPad: 3));
+            }
+            else
+            {
+                _layerDivider.Visibility = Visibility.Visible;
+                _rowsStack.Children.Add(_upperRow);
+                _rowsStack.Children.Add(_layerDivider);
+                _rowsStack.Children.Add(_lowerRow);
+            }
         }
         else
         {
             _upperRow.Visibility = Visibility.Collapsed;
             _layerDivider.Visibility = Visibility.Collapsed;
-            PopulateRow(_lowerRow, actions);
+            PopulateRow(_lowerRow, deckActions);
+
+            if (isTui)
+                _rowsStack.Children.Add(W11WindowHelper.WrapWithTuiSideRails(_lowerRow, pal, horizontalPad: 3));
+            else
+                _rowsStack.Children.Add(_lowerRow);
+        }
+
+        _rowsHost.Children.Add(_rowsStack);
+
+        if (isTui)
+        {
+            // Top ASCII border with Calculate/Convert & Word Count embedded right inside the border
+            double topFsz = Math.Max(9.0, m.MenuHeaderFontSize + 0.5);
+            double topRowH = Math.Ceiling(topFsz * 1.45);
+            _tuiTopHost.Visibility = Visibility.Visible;
+            _tuiBottomHost.Visibility = Visibility.Visible;
+
+            _tuiTopHost.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // ╭─
+            _tuiTopHost.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // badges
+            _tuiTopHost.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // dashes
+            _tuiTopHost.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // ╮
+
+            TextBlock MakeBorderGlyph(string s, Brush fg, bool bold = false)
+            {
+                var t = new TextBlock
+                {
+                    Text = s,
+                    FontFamily = W11WindowHelper.MonoFont,
+                    FontWeight = bold ? FontWeights.Bold : FontWeights.Normal,
+                    FontSize = topFsz,
+                    LineHeight = topRowH,
+                    LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+                    Foreground = fg,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                TextOptions.SetTextFormattingMode(t, TextFormattingMode.Display);
+                return t;
+            }
+
+            var leftCorner = MakeBorderGlyph("╭─", tuiFrameBrush);
+            Grid.SetColumn(leftCorner, 0);
+            _tuiTopHost.Children.Add(leftCorner);
+
+            var badgeRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+
+            Border BuildTopBorderBadge(string txt, string tipText, bool primaryShade, Action onClick, Action onRightClick = null)
+            {
+                var label = MakeBorderGlyph(primaryShade ? $"░▒▓ {txt} ▓▒░" : $"░▒ {txt} ▒░", tuiAccentBrush, bold: true);
+                var pill = new Border
+                {
+                    CornerRadius = new CornerRadius(2.5),
+                    Padding = new Thickness(2, 0, 2, 0),
+                    Cursor = Cursors.Hand,
+                    Background = Brushes.Transparent,
+                    Child = label
+                };
+                pill.MouseEnter += (_, _) =>
+                {
+                    ResetAutoHide();
+                    pill.Background = hoverBg;
+                    if (_tuiTickerTb != null) _tuiTickerTb.Text = $"▸ {tipText}";
+                };
+                pill.MouseLeave += (_, _) =>
+                {
+                    pill.Background = Brushes.Transparent;
+                    if (_tuiTickerTb != null) _tuiTickerTb.Text = _tuiDefaultTicker;
+                };
+                pill.MouseLeftButtonDown += (_, e) => { e.Handled = true; };
+                pill.MouseLeftButtonUp += (_, e) => { e.Handled = true; onClick?.Invoke(); };
+                pill.MouseRightButtonUp += (_, e) => { e.Handled = true; (onRightClick ?? onClick)?.Invoke(); };
+                return pill;
+            }
+
+            if (calcItem != null)
+            {
+                string calcHint = SmartParser.HintForIndex(hintCounter++);
+                if (calcItem.OnClick != null) _hintMap[calcHint] = calcItem.OnClick;
+                string calcLabel = !string.IsNullOrEmpty(calcItem.ShortLabel) ? calcItem.ShortLabel : calcItem.Glyph;
+                badgeRow.Children.Add(BuildTopBorderBadge(calcLabel, $"{calcItem.Tip} [{calcHint}]", primaryShade: true, calcItem.OnClick));
+                if (statsItem != null)
+                    badgeRow.Children.Add(MakeBorderGlyph("─", tuiFrameBrush));
+            }
+
+            if (statsItem != null)
+            {
+                string statsLabel = (!string.IsNullOrEmpty(statsItem.ShortLabel) ? statsItem.ShortLabel : statsItem.Glyph)
+                    .Replace(" ", "·");
+                badgeRow.Children.Add(BuildTopBorderBadge(
+                    statsLabel,
+                    $"{statsItem.Tip} (Click: Inspect · Right-click: Copy)",
+                    primaryShade: calcItem == null,
+                    statsItem.OnClick,
+                    statsItem.OnRightClick));
+            }
+
+            if (calcItem == null && statsItem == null)
+            {
+                badgeRow.Children.Add(MakeBorderGlyph("░▒▓ SPARKBAR ▓▒░", tuiAccentBrush, bold: true));
+            }
+
+            badgeRow.Children.Add(MakeBorderGlyph(" ", tuiFrameBrush));
+            Grid.SetColumn(badgeRow, 1);
+            _tuiTopHost.Children.Add(badgeRow);
+
+            var topFill = W11WindowHelper.CreateTuiDashFill('─', tuiFrameBrush, topFsz, topRowH);
+            Grid.SetColumn(topFill, 2);
+            _tuiTopHost.Children.Add(topFill);
+
+            var rightCorner = MakeBorderGlyph("╮", tuiFrameBrush);
+            Grid.SetColumn(rightCorner, 3);
+            _tuiTopHost.Children.Add(rightCorner);
+
+            _tuiDefaultTicker = "✦ Hover icon";
+            var botBar = W11WindowHelper.CreateTuiFooterBar(_tuiDefaultTicker, pal, m, out _tuiTickerTb);
+            _tuiBottomHost.Children.Add(botBar);
+        }
+        else
+        {
+            _tuiTopHost.Visibility = Visibility.Collapsed;
+            _tuiBottomHost.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -661,6 +889,11 @@ internal sealed class PopupToolbarWindow : Window
 
     private void ShowHoverTooltipFor(Border btnBorder, string text, string hint)
     {
+        if (_cfg.IsNeonTui && _tuiTickerTb != null)
+        {
+            _tuiTickerTb.Text = string.IsNullOrEmpty(hint) ? $"⇄ {text}" : $"▸ {text} [{hint}]";
+            return;
+        }
         try
         {
             Point centerBottom = btnBorder.PointToScreen(new Point(btnBorder.ActualWidth / 2.0, btnBorder.ActualHeight));

@@ -251,26 +251,19 @@ internal sealed class TrayFlyoutWindow : Window
         _cfg = cfg;
         var pal = cfg.UpdatePalette();
         var m = W11WindowHelper.GetFlyoutMetrics(cfg);
+        bool isTui = cfg.IsNeonTui;
+        var uiFont = isTui ? W11WindowHelper.MonoFont : W11WindowHelper.TextFont;
 
         W11WindowHelper.ConfigureDwmFlyoutChrome(this);
 
-        var stack = new StackPanel { Orientation = Orientation.Vertical, Width = Math.Max(215, m.MenuSingleMaxWidth) };
+        var outerStack = new StackPanel { Orientation = Orientation.Vertical, Width = Math.Max(220, m.MenuSingleMaxWidth + (isTui ? 14 : 0)) };
+        var stack = new StackPanel { Orientation = Orientation.Vertical };
         var hoverBg = new LinearGradientBrush(pal.HoverTop, pal.HoverBottom, 90);
-        var hoverBorder = new SolidColorBrush(pal.HoverBorder.Value);
+        var hoverBorder = new SolidColorBrush(isTui ? W11WindowHelper.GetTuiHighlightColor(pal) : pal.HoverBorder.Value);
 
-        var hdr = new DockPanel { Margin = new Thickness(6, 2, 6, 4) };
-        hdr.Children.Add(new TextBlock
-        {
-            Text = "SparkBar",
-            FontFamily = W11WindowHelper.DisplayFont,
-            FontWeight = FontWeights.SemiBold,
-            FontSize = m.CardTitleFontSize,
-            Foreground = new SolidColorBrush(pal.Text),
-            VerticalAlignment = VerticalAlignment.Center
-        });
         var statusPill = new Border
         {
-            CornerRadius = new CornerRadius(4),
+            CornerRadius = new CornerRadius(isTui ? 2.5 : 4),
             Padding = new Thickness(6, 1, 6, 1),
             Background = new SolidColorBrush(isEnabled
                 ? (pal.IsLight ? Color.FromRgb(0xDC, 0xFC, 0xE7) : Color.FromRgb(0x13, 0x2D, 0x24))
@@ -283,7 +276,7 @@ internal sealed class TrayFlyoutWindow : Window
             Child = new TextBlock
             {
                 Text = isEnabled ? "Active" : "Paused",
-                FontFamily = W11WindowHelper.TextFont,
+                FontFamily = uiFont,
                 FontSize = m.CardSubFontSize,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = new SolidColorBrush(isEnabled
@@ -291,9 +284,27 @@ internal sealed class TrayFlyoutWindow : Window
                     : pal.SubText)
             }
         };
-        DockPanel.SetDock(statusPill, Dock.Right);
-        hdr.Children.Add(statusPill);
-        stack.Children.Add(hdr);
+
+        if (isTui)
+        {
+            outerStack.Children.Add(W11WindowHelper.CreateTuiHeaderBar(cfg, "SPARKBAR", pal, m, rightBadgeOrBtn: statusPill));
+        }
+        else
+        {
+            var hdr = new DockPanel { Margin = new Thickness(6, 2, 6, 4) };
+            hdr.Children.Add(new TextBlock
+            {
+                Text = "SparkBar",
+                FontFamily = W11WindowHelper.DisplayFont,
+                FontWeight = FontWeights.SemiBold,
+                FontSize = m.CardTitleFontSize,
+                Foreground = new SolidColorBrush(pal.Text),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            DockPanel.SetDock(statusPill, Dock.Right);
+            hdr.Children.Add(statusPill);
+            stack.Children.Add(hdr);
+        }
 
         void AddDivider()
         {
@@ -328,7 +339,7 @@ internal sealed class TrayFlyoutWindow : Window
             var tb = new TextBlock
             {
                 Text = label,
-                FontFamily = W11WindowHelper.TextFont,
+                FontFamily = uiFont,
                 FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
                 FontSize = m.TextFontSize,
                 Foreground = new SolidColorBrush(pal.Text),
@@ -342,7 +353,7 @@ internal sealed class TrayFlyoutWindow : Window
                 var badge = new TextBlock
                 {
                     Text = rightBadge,
-                    FontFamily = W11WindowHelper.TextFont,
+                    FontFamily = uiFont,
                     FontSize = m.CardSubFontSize,
                     Foreground = new SolidColorBrush(pal.SubText),
                     VerticalAlignment = VerticalAlignment.Center,
@@ -354,7 +365,7 @@ internal sealed class TrayFlyoutWindow : Window
 
             var b = new Border
             {
-                CornerRadius = new CornerRadius(m.BtnCornerRadius),
+                CornerRadius = new CornerRadius(isTui ? 2.5 : m.BtnCornerRadius),
                 Background = Brushes.Transparent,
                 BorderBrush = Brushes.Transparent,
                 BorderThickness = new Thickness(1),
@@ -368,7 +379,7 @@ internal sealed class TrayFlyoutWindow : Window
             return b;
         }
 
-        AddDivider();
+        if (!isTui) AddDivider();
         stack.Children.Add(MakeRow(isEnabled ? "\uE73E" : "\uE768", isEnabled ? "Enabled (Click to Pause)" : "Resume SparkBar", "", false, onToggleEnabled));
         stack.Children.Add(MakeRow("\uE8C8", "Clipboard History", "Ctrl+Alt+V", false, onOpenClipboardHistory));
         stack.Children.Add(MakeRow("\uE8F8", "Exclude active app", "Ctrl+Alt+X", false, onToggleExcludeActiveApp));
@@ -393,12 +404,23 @@ internal sealed class TrayFlyoutWindow : Window
         stack.Children.Add(MakeRow("\uE72C", "Reload configuration", "", false, onReload));
         stack.Children.Add(MakeRow("\uE7E8", "Exit", "", false, onExit));
 
-        double padX = Math.Round(m.CardPadding.Left * 1.5);
-        double padY = Math.Round(m.CardPadding.Top * 1.5);
+        if (isTui)
+        {
+            outerStack.Children.Add(W11WindowHelper.WrapWithTuiSideRails(stack, pal, horizontalPad: 3));
+            outerStack.Children.Add(W11WindowHelper.CreateTuiFooterBar("Tray Menu", pal, m, out _));
+        }
+        else
+        {
+            outerStack.Children.Add(stack);
+        }
+
+        double padX = Math.Round(m.CardPadding.Left * (isTui ? 1.2 : 1.5));
+        double padY = Math.Round(m.CardPadding.Top * (isTui ? 1.2 : 1.5));
         var topHighlight = W11WindowHelper.CreateTopHighlight(pal, topNegativeMargin: -padY);
+        topHighlight.Visibility = isTui ? Visibility.Collapsed : Visibility.Visible;
         var inner = new Grid();
         inner.Children.Add(topHighlight);
-        inner.Children.Add(stack);
+        inner.Children.Add(outerStack);
 
         _card = new Border
         {
@@ -414,7 +436,7 @@ internal sealed class TrayFlyoutWindow : Window
 
     public void ShowNearTray(int screenX, int screenY)
     {
-        W11WindowHelper.MakeNonActivatingFlyout(this, _cfg.Palette, smallCorners: W11WindowHelper.GetFlyoutMetrics(_cfg).SmallWindowCorners);
+        W11WindowHelper.MakeNonActivatingFlyout(this, _cfg.Palette, smallCorners: W11WindowHelper.GetFlyoutMetrics(_cfg).SmallWindowCorners, neonTui: _cfg.IsNeonTui);
         Show();
         UpdateLayout();
 

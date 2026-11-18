@@ -79,7 +79,7 @@ internal sealed class ToastWindow : Window
 
     public void PreWarm()
     {
-        W11WindowHelper.MakeNonActivatingFlyout(this, _cfg.Palette, clickThrough: true);
+        W11WindowHelper.MakeNonActivatingFlyout(this, _cfg.Palette, clickThrough: true, neonTui: _cfg.IsNeonTui);
         _hwnd = new WindowInteropHelper(this).Handle;
         Left = -32000;
         Top = -32000;
@@ -93,9 +93,10 @@ internal sealed class ToastWindow : Window
         _holdTimer.Stop();
         var pal = _cfg.Palette;
         var m = W11WindowHelper.GetFlyoutMetrics(_cfg);
+        bool isTui = _cfg.IsNeonTui;
         Background = new SolidColorBrush(pal.BgBottom);
         if (_hwnd != IntPtr.Zero)
-            W11WindowHelper.ApplyDwmFlyoutAttributes(_hwnd, pal, smallCorners: m.SmallWindowCorners);
+            W11WindowHelper.ApplyDwmFlyoutAttributes(_hwnd, pal, smallCorners: m.SmallWindowCorners, neonTui: isTui);
 
         text = System.Text.RegularExpressions.Regex.Replace((text ?? "").Trim(), @"\s+", " ");
         if (text.Length > 90) text = text[..89] + "…";
@@ -132,9 +133,10 @@ internal sealed class ToastWindow : Window
         _badgeGlyph.FontSize = Math.Max(9.5, m.ToastBadgeSize * 0.5);
         _badgeGlyph.Text = glyph;
         _badgeGlyph.Foreground = new SolidColorBrush(accent);
+        _label.FontFamily = isTui ? W11WindowHelper.MonoFont : W11WindowHelper.TextFont;
         _label.FontSize = m.ToastFontSize;
         _label.Foreground = new SolidColorBrush(pal.Text);
-        _label.Text = text;
+        _label.Text = isTui ? $"░▒ {text}" : text;
 
         if (!IsVisible)
             Show();

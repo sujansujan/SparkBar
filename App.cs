@@ -894,7 +894,8 @@ public sealed class App : Application
             OnClick = DoCaseMenu
         });
 
-        var enabledActs = acts.Where(a => _cfg.IsActionEnabled(a.Tip)).ToList();
+        var enabledActs = acts.Where(a => _cfg.IsActionEnabled(a.Tip) ||
+            (_cfg.IsNeonTui && a.Tip.StartsWith("Words:", StringComparison.OrdinalIgnoreCase))).ToList();
         return ApplyPopupOrder(enabledActs);
     }
 

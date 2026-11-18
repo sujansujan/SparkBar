@@ -95,7 +95,7 @@ internal sealed class SettingsWindow : Window
     private readonly ObservableCollection<EngineRowModel> _engineRows = new();
     private readonly ObservableCollection<string> _excludedRows = new();
 
-    private ComboBox _themeCombo, _sizeCombo, _translateLangCombo;
+    private ComboBox _themeCombo, _sizeCombo, _styleCombo, _translateLangCombo;
     private CheckBox _twoLayerChk, _startupChk, _animChk, _hintsChk, _kbdChk, _fsChk, _fbChk, _uncChk;
     private TextBox _timeoutEd, _dragEd;
     private ComboBox _defaultSearchCombo;
@@ -431,8 +431,9 @@ internal sealed class SettingsWindow : Window
         });
         _translateLangCombo = new ComboBox
         {
-            Width = 170,
+            Width = 140,
             Padding = new Thickness(8, 4, 8, 4),
+            Margin = new Thickness(0, 0, 22, 0),
             DisplayMemberPath = "Label",
             SelectedValuePath = "Code"
         };
@@ -444,6 +445,20 @@ internal sealed class SettingsWindow : Window
         if (_translateLangCombo.SelectedIndex < 0 && langItems.Count > 0)
             _translateLangCombo.SelectedIndex = 0;
         langRow.Children.Add(_translateLangCombo);
+
+        langRow.Children.Add(new TextBlock
+        {
+            Text = "Popup style:",
+            Foreground = textBrush,
+            Width = 105,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 13
+        });
+        _styleCombo = new ComboBox { Width = 130, Padding = new Thickness(8, 4, 8, 4) };
+        foreach (string st in new[] { "neontui", "classic" })
+            _styleCombo.Items.Add(st);
+        _styleCombo.SelectedItem = _cfg.PopupStyle;
+        langRow.Children.Add(_styleCombo);
         sp.Children.Add(langRow);
 
         _twoLayerChk = MakeCheck("Two-layer smart popup (relevant items on lower row near cursor, utilities on upper row)", _cfg.TwoLayerPopup, textBrush);
@@ -1004,6 +1019,7 @@ internal sealed class SettingsWindow : Window
     {
         _cfg.SetRunAtStartup(_startupChk.IsChecked == true);
         _cfg.ThemeMode = (_themeCombo.SelectedItem as string) ?? _cfg.ThemeMode;
+        _cfg.PopupStyle = (_styleCombo.SelectedItem as string) ?? _cfg.PopupStyle;
         _cfg.PopupSize = (_sizeCombo.SelectedItem as string) ?? _cfg.PopupSize;
         if (_translateLangCombo?.SelectedValue is string tl && !string.IsNullOrEmpty(tl))
             _cfg.TranslateTargetLang = tl;
