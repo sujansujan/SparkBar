@@ -31,6 +31,7 @@ public sealed class App : Application
     // Pre-warmed persistent popup toolbar window
     private PopupToolbarWindow _popupWindow;
     private OptionMenuWindow _optionMenuWindow;
+    private ResultCardWindow _resultCardWindow;
     private ToastWindow _toastWindow;
     private QrWindow _qrWindow;
     private UrlBuilderWindow _urlBuilderWindow;
@@ -99,6 +100,13 @@ public sealed class App : Application
         _popupWindow.PreWarm();
         _optionMenuWindow = new OptionMenuWindow(_cfg);
         _optionMenuWindow.PreWarm();
+        _resultCardWindow = new ResultCardWindow(
+            _cfg,
+            onCopyText: txt => { UiaHelper.SetClipboardUnicodeText(txt); _cfg.RecordClipboardItem(txt); },
+            onReplaceText: (win, txt) => ApplyTransform(win, _selText, editable: true, _ => txt),
+            onOpenWebUrl: OpenUrl,
+            onToast: msg => ShowToast(msg));
+        _resultCardWindow.PreWarm();
         _toastWindow = new ToastWindow(_cfg);
         _toastWindow.PreWarm();
 
@@ -160,7 +168,7 @@ public sealed class App : Application
         _hooks = new InputHookService
         {
             IsHintKeyBound = IsHintKeyBound,
-            IsAnyPopupOrQrOrTypingActive = () => IsPopupOpen || IsOptionMenuOpen || _qrWindow != null || (_tray?.IsFlyoutOpen ?? false) || _typingActive
+            IsAnyPopupOrQrOrTypingActive = () => IsPopupOpen || IsOptionMenuOpen || IsResultCardOpen || _qrWindow != null || (_tray?.IsFlyoutOpen ?? false) || _typingActive
         };
 
         _hooks.MouseLeftDown += (x, y) => Dispatcher.BeginInvoke(DispatcherPriority.Send, () => HandleMouseDown(x, y));
@@ -199,6 +207,7 @@ public sealed class App : Application
 
     private bool IsPopupOpen => _popupWindow != null && _popupWindow.IsPopupOpen;
     private bool IsOptionMenuOpen => _optionMenuWindow != null && _optionMenuWindow.IsMenuOpen;
+    private bool IsResultCardOpen => _resultCardWindow != null && _resultCardWindow.IsCardOpen;
 
     private void ApplyFluentAppTheme()
     {
@@ -212,7 +221,7 @@ public sealed class App : Application
 
     private void OnForegroundWindowChanged(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint idEventThread, uint dwmsEventTime)
     {
-        if (!IsPopupOpen && !IsOptionMenuOpen) return;
+        if (!IsPopupOpen && !IsOptionMenuOpen && !IsResultCardOpen && _qrWindow == null) return;
         if (hwnd == IntPtr.Zero || Native.IsOwnWindow(hwnd)) return;
         if (_lastActiveWin != IntPtr.Zero && hwnd != _lastActiveWin)
             Dispatcher.BeginInvoke(() => DismissAllMenus());
@@ -236,6 +245,16 @@ public sealed class App : Application
                 return;
             }
             _tray.CloseFlyout();
+        }
+
+        if (IsResultCardOpen)
+        {
+            if (rootWin == _resultCardWindow.Hwnd)
+            {
+                _ignoreClick = true;
+                return;
+            }
+            HideResultCard();
         }
 
         if (_qrWindow != null)
@@ -316,9 +335,11 @@ public sealed class App : Application
 
     private void HandleMouseRightUp(int x, int y)
     {
-        if (!IsPopupOpen && !IsOptionMenuOpen) return;
+        if (!IsPopupOpen && !IsOptionMenuOpen && !IsResultCardOpen) return;
         IntPtr rootWin = Native.GetAncestor(Native.WindowFromPoint(new Native.POINT(x, y)), Native.GA_ROOT);
         if (IsPopupOpen && rootWin == _popupWindow.Hwnd)
+            return;
+        if (IsResultCardOpen && rootWin == _resultCardWindow.Hwnd)
             return;
         DismissAllMenus();
     }
@@ -450,6 +471,8 @@ public sealed class App : Application
 
     private bool IsHintKeyBound(string key)
     {
+        if (IsResultCardOpen) return _resultCardWindow.HasHintKey(key);
+        if (_qrWindow != null) return _qrWindow.HasHintKey(key);
         if (IsOptionMenuOpen) return _optionMenuWindow.HasHintKey(key);
         if (IsPopupOpen) return _popupWindow.HasHintKey(key);
         return false;
@@ -457,7 +480,11 @@ public sealed class App : Application
 
     private void HandleHintKey(string key)
     {
-        if (IsOptionMenuOpen && _optionMenuWindow.HasHintKey(key))
+        if (IsResultCardOpen && _resultCardWindow.HasHintKey(key))
+            _resultCardWindow.InvokeHintKey(key);
+        else if (_qrWindow != null && _qrWindow.HasHintKey(key))
+            _qrWindow.InvokeHintKey(key);
+        else if (IsOptionMenuOpen && _optionMenuWindow.HasHintKey(key))
             _optionMenuWindow.InvokeHintKey(key);
         else if (IsPopupOpen && _popupWindow.HasHintKey(key))
             _popupWindow.InvokeHintKey(key);
@@ -473,6 +500,11 @@ public sealed class App : Application
         if (_qrWindow != null)
         {
             HideQr();
+            return;
+        }
+        if (IsResultCardOpen)
+        {
+            HideResultCard();
             return;
         }
         _tray?.CloseFlyout();
@@ -516,10 +548,17 @@ public sealed class App : Application
         _optionMenuWindow?.HideMenu();
     }
 
+    public void HideResultCard()
+    {
+        _resultCardWindow?.HideCard();
+    }
+
     public void DismissAllMenus(bool instant = false)
     {
         HideOptionMenu(instant);
         HidePopup(instant);
+        HideResultCard();
+        HideQr();
     }
 
     public void ShowToast(string message, string kind = "ok", int holdMs = 1100)
@@ -719,7 +758,7 @@ public sealed class App : Application
                 OnClick = () => CopyTextAction(mathRes, "Copied: " + mathRes)
             });
         }
-        else if (Regex.IsMatch(t, @"^\p{L}{2,30}$"))
+        else if (Regex.IsMatch(t, @"^[\p{L}'-]{2,30}(?:\s+[\p{L}'-]{2,25})?$"))
         {
             acts.Add(new PopupActionItem
             {
@@ -728,7 +767,8 @@ public sealed class App : Application
                 IsIconGlyph = true,
                 Group = 2,
                 RelevancePriority = 0,
-                OnClick = () => { HidePopup(); OpenUrl(ConfigService.DefineUrl + Uri.EscapeDataString(t)); }
+                OnClick = () => DoInAppCard(ResultCardMode.Define, t),
+                OnRightClick = () => { HidePopup(); OpenUrl(ConfigService.DefineUrl + Uri.EscapeDataString(t)); }
             });
         }
 
@@ -791,7 +831,8 @@ public sealed class App : Application
             IsIconGlyph = true,
             Group = 4,
             RelevancePriority = 2,
-            OnClick = () => { HidePopup(); OpenUrl(ConfigService.TranslateUrl + Uri.EscapeDataString(t)); }
+            OnClick = () => DoInAppCard(ResultCardMode.Translate, t),
+            OnRightClick = () => DoInAppCard(ResultCardMode.Translate, t, expandLangPicker: true)
         });
 
         SmartParser.GetTextStats(t, out int words, out int chars, out int lines);
@@ -803,7 +844,8 @@ public sealed class App : Application
             ForceText = true,
             Group = 5,
             RelevancePriority = 3,
-            OnClick = () => CopyTextAction($"{words} words, {chars} characters, {lines} lines", "Stats copied")
+            OnClick = () => DoInAppCard(ResultCardMode.Inspect, t),
+            OnRightClick = () => CopyTextAction($"{words} words, {chars} characters, {lines} lines", "Stats copied")
         });
 
         acts.Add(new PopupActionItem
@@ -994,6 +1036,16 @@ public sealed class App : Application
         TryShellStart(p);
     }
 
+    private void DoInAppCard(ResultCardMode mode, string text, bool expandLangPicker = false)
+    {
+        bool editable = _popupEditable;
+        IntPtr prevWin = _lastActiveWin != IntPtr.Zero ? _lastActiveWin : Native.GetForegroundWindow();
+        HidePopup();
+        HideOptionMenu();
+        HideQr();
+        _resultCardWindow?.ShowCard(mode, text, editable, prevWin, _popX, _popY, expandLangPicker);
+    }
+
     private void DoQrCode(string text)
     {
         DismissAllMenus();
@@ -1105,7 +1157,7 @@ public sealed class App : Application
 
         items.Add(new OptionMenuItem
         {
-            Label = $"Switch Default Search ({_cfg.DefaultSearchEngine})...",
+            Label = $"Default: {_cfg.DefaultSearchEngine}",
             Glyph = "★",
             Accent = true,
             OnClick = DoQuickDefaultSearchPicker
@@ -1136,9 +1188,9 @@ public sealed class App : Application
             new() { Label = "snake_case",          Glyph = "s_", OnClick = () => ApplyTransform(prevWin, text, editable, SmartParser.ToSnakeCase) },
             new() { Label = "kebab-case",          Glyph = "k-", OnClick = () => ApplyTransform(prevWin, text, editable, SmartParser.ToKebabCase) },
             new() { Label = "CONSTANT_CASE",       Glyph = "C_", OnClick = () => ApplyTransform(prevWin, text, editable, SmartParser.ToConstantCase) },
-            new() { Label = "Wrap in \"quotes\"",  Glyph = "\"\"", OnClick = () => ApplyTransform(prevWin, text, editable, s => "\"" + s + "\"") },
-            new() { Label = "Collapse whitespace", Glyph = "↔",  OnClick = () => ApplyTransform(prevWin, text, editable, s => Regex.Replace(s.Trim(), @"\s+", " ")) },
-            new() { Label = "Remove line breaks",  Glyph = "↵",  OnClick = () => ApplyTransform(prevWin, text, editable, s => Regex.Replace(s.Trim(), @"\s*\R\s*", " ")) }
+            new() { Label = "Wrap \"quotes\"",     Glyph = "\"\"", OnClick = () => ApplyTransform(prevWin, text, editable, s => "\"" + s + "\"") },
+            new() { Label = "Clean spaces",        Glyph = "↔",  OnClick = () => ApplyTransform(prevWin, text, editable, s => Regex.Replace(s.Trim(), @"\s+", " ")) },
+            new() { Label = "Join lines",          Glyph = "↵",  OnClick = () => ApplyTransform(prevWin, text, editable, s => Regex.Replace(s.Trim(), @"\s*\R\s*", " ")) }
         };
 
         string clipUrl = UiaHelper.GetClipboardUnicodeText().Trim();
@@ -1413,6 +1465,7 @@ public sealed class App : Application
         HideQr();
         try { _popupWindow?.Close(); } catch { }
         try { _optionMenuWindow?.Close(); } catch { }
+        try { _resultCardWindow?.Close(); } catch { }
         try { _toastWindow?.Close(); } catch { }
         if (_winEventHook != IntPtr.Zero)
         {

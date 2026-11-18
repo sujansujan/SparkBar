@@ -86,10 +86,10 @@ public sealed class ConfigService
         ["New email"]             = "Shown when selection is an email address",
         ["Open"]                  = "Shown when selection is a local file path",
         ["Show in folder"]        = "Reveals local file path in Explorer",
-        ["Define"]                = "Shown when selection is a single word",
+        ["Define"]                = "Opens instant in-app dictionary popup card",
         ["QR code"]               = "Generates scannable QR code popup",
-        ["Translate"]             = "Opens selection in Google Translate",
-        ["Word count"]            = "Live word/char pill (always shown in Aa menu)",
+        ["Translate"]             = "Translates selection in an instant in-app popup card",
+        ["Word count"]            = "Live word/char pill (click to open Text Inspector card)",
         ["Change case / clean up"]= "Opens the Aa text transform menu"
     };
 
@@ -130,6 +130,24 @@ public sealed class ConfigService
     public string ThemeMode { get; set; } = "midnight";
     public string PopupSize { get; set; } = "compact"; // mini, compact, normal, large
     public bool TwoLayerPopup { get; set; } = true;
+    public string TranslateTargetLang { get; set; } = "en";
+
+    public static readonly (string Code, string Label)[] SupportedTranslateLanguages =
+    {
+        ("en", "English (EN)"),
+        ("ne", "Nepali (NE)"),
+        ("hi", "Hindi (HI)"),
+        ("es", "Spanish (ES)"),
+        ("fr", "French (FR)"),
+        ("de", "German (DE)"),
+        ("ja", "Japanese (JA)"),
+        ("zh-CN", "Chinese (ZH)"),
+        ("ko", "Korean (KO)"),
+        ("pt", "Portuguese (PT)"),
+        ("ru", "Russian (RU)"),
+        ("ar", "Arabic (AR)"),
+        ("it", "Italian (IT)")
+    };
     public bool AnimationsEnabled { get; set; } = true;
     public bool ShowHintBadges { get; set; } = false;
     public bool KeyboardTriggerEnabled { get; set; } = false;
@@ -264,6 +282,10 @@ public sealed class ConfigService
 
         TwoLayerPopup = ReadIni("General", "TwoLayerPopup", "1") != "0";
 
+        string tl = ReadIni("General", "TranslateTargetLang", TranslateTargetLang).Trim();
+        if (!string.IsNullOrEmpty(tl))
+            TranslateTargetLang = tl;
+
         foreach (string label in ActionCatalog)
         {
             string disp = ReadIni("Display", label, ActionDisplay[label]).Trim().ToLowerInvariant();
@@ -279,6 +301,7 @@ public sealed class ConfigService
         WriteIni("General", "ThemeMode", ThemeMode);
         WriteIni("General", "PopupSize", PopupSize);
         WriteIni("General", "TwoLayerPopup", TwoLayerPopup ? "1" : "0");
+        WriteIni("General", "TranslateTargetLang", TranslateTargetLang);
         WriteIni("General", "Animations", AnimationsEnabled ? "1" : "0");
         WriteIni("General", "ShowHintBadges", ShowHintBadges ? "1" : "0");
         WriteIni("General", "KeyboardTrigger", KeyboardTriggerEnabled ? "1" : "0");

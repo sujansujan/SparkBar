@@ -95,7 +95,7 @@ internal sealed class SettingsWindow : Window
     private readonly ObservableCollection<EngineRowModel> _engineRows = new();
     private readonly ObservableCollection<string> _excludedRows = new();
 
-    private ComboBox _themeCombo, _sizeCombo;
+    private ComboBox _themeCombo, _sizeCombo, _translateLangCombo;
     private CheckBox _twoLayerChk, _startupChk, _animChk, _hintsChk, _kbdChk, _fsChk, _fbChk, _uncChk;
     private TextBox _timeoutEd, _dragEd;
     private ComboBox _defaultSearchCombo;
@@ -419,6 +419,32 @@ internal sealed class SettingsWindow : Window
         _sizeCombo.SelectedItem = _cfg.PopupSize;
         themeRow.Children.Add(_sizeCombo);
         sp.Children.Add(themeRow);
+
+        var langRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+        langRow.Children.Add(new TextBlock
+        {
+            Text = "Translate to:",
+            Foreground = textBrush,
+            Width = 95,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 13
+        });
+        _translateLangCombo = new ComboBox
+        {
+            Width = 170,
+            Padding = new Thickness(8, 4, 8, 4),
+            DisplayMemberPath = "Label",
+            SelectedValuePath = "Code"
+        };
+        var langItems = ConfigService.SupportedTranslateLanguages
+            .Select(x => new { x.Code, x.Label })
+            .ToList();
+        _translateLangCombo.ItemsSource = langItems;
+        _translateLangCombo.SelectedValue = _cfg.TranslateTargetLang;
+        if (_translateLangCombo.SelectedIndex < 0 && langItems.Count > 0)
+            _translateLangCombo.SelectedIndex = 0;
+        langRow.Children.Add(_translateLangCombo);
+        sp.Children.Add(langRow);
 
         _twoLayerChk = MakeCheck("Two-layer smart popup (relevant items on lower row near cursor, utilities on upper row)", _cfg.TwoLayerPopup, textBrush);
         _startupChk = MakeCheck("Launch SparkBar automatically when Windows starts", _cfg.IsRunAtStartupEnabled(), textBrush);
@@ -979,6 +1005,8 @@ internal sealed class SettingsWindow : Window
         _cfg.SetRunAtStartup(_startupChk.IsChecked == true);
         _cfg.ThemeMode = (_themeCombo.SelectedItem as string) ?? _cfg.ThemeMode;
         _cfg.PopupSize = (_sizeCombo.SelectedItem as string) ?? _cfg.PopupSize;
+        if (_translateLangCombo?.SelectedValue is string tl && !string.IsNullOrEmpty(tl))
+            _cfg.TranslateTargetLang = tl;
         _cfg.TwoLayerPopup = _twoLayerChk.IsChecked == true;
         _cfg.AnimationsEnabled = _animChk.IsChecked == true;
         _cfg.ShowHintBadges = _hintsChk.IsChecked == true;

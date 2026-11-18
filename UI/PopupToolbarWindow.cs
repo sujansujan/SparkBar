@@ -69,63 +69,7 @@ internal sealed class PopupToolbarWindow : Window
         fn?.Invoke();
     }
 
-    private readonly record struct SizeMetrics(
-        double BtnHeight,
-        double IconMinWidth,
-        double PillMinWidth,
-        double IconFontSize,
-        double TextFontSize,
-        double FavTileSize,
-        double FavImgSize,
-        double SwatchSize,
-        double SepHeight,
-        double BtnCornerRadius,
-        double TextPadX,
-        Thickness CardPadding,
-        Thickness BtnMargin,
-        bool SmallWindowCorners);
-
-    private SizeMetrics GetMetrics()
-    {
-        return (_cfg.PopupSize ?? "compact").ToLowerInvariant() switch
-        {
-            "mini" => new SizeMetrics(
-                BtnHeight: 20, IconMinWidth: 23, PillMinWidth: 26,
-                IconFontSize: 11.5, TextFontSize: 10.5,
-                FavTileSize: 16, FavImgSize: 13, SwatchSize: 12, SepHeight: 11,
-                BtnCornerRadius: 4.5, TextPadX: 5.5,
-                CardPadding: new Thickness(2.5, 2.5, 2.5, 2.5),
-                BtnMargin: new Thickness(0.5, 0, 0.5, 0),
-                SmallWindowCorners: true),
-
-            "normal" => new SizeMetrics(
-                BtnHeight: 29, IconMinWidth: 32, PillMinWidth: 36,
-                IconFontSize: 14, TextFontSize: 12,
-                FavTileSize: 23, FavImgSize: 17, SwatchSize: 16, SepHeight: 15,
-                BtnCornerRadius: 6, TextPadX: 8,
-                CardPadding: new Thickness(3.5, 3.5, 3.5, 3.5),
-                BtnMargin: new Thickness(1, 0, 1, 0),
-                SmallWindowCorners: false),
-
-            "large" => new SizeMetrics(
-                BtnHeight: 33, IconMinWidth: 36, PillMinWidth: 40,
-                IconFontSize: 15.5, TextFontSize: 13,
-                FavTileSize: 26, FavImgSize: 20, SwatchSize: 18, SepHeight: 17,
-                BtnCornerRadius: 6.5, TextPadX: 9,
-                CardPadding: new Thickness(4, 4, 4, 4),
-                BtnMargin: new Thickness(1.5, 0, 1.5, 0),
-                SmallWindowCorners: false),
-
-            _ => new SizeMetrics( // "compact" (default)
-                BtnHeight: 24, IconMinWidth: 27, PillMinWidth: 30,
-                IconFontSize: 12.5, TextFontSize: 11,
-                FavTileSize: 19, FavImgSize: 15, SwatchSize: 14, SepHeight: 13,
-                BtnCornerRadius: 5, TextPadX: 6.5,
-                CardPadding: new Thickness(3, 3, 3, 3),
-                BtnMargin: new Thickness(1, 0, 1, 0),
-                SmallWindowCorners: false)
-        };
-    }
+    private FlyoutMetrics GetMetrics() => W11WindowHelper.GetFlyoutMetrics(_cfg);
 
     public PopupToolbarWindow(ConfigService cfg, Action<string, string> onReorder)
     {
@@ -217,7 +161,7 @@ internal sealed class PopupToolbarWindow : Window
         _hoverTip.PreWarm();
     }
 
-    private double EstimateItemWidth(PopupActionItem act, SizeMetrics m)
+    private double EstimateItemWidth(PopupActionItem act, FlyoutMetrics m)
     {
         bool useIcon = !act.ForceText && _cfg.GetActionDisplay(act.Tip) == "icon";
         double marginW = m.BtnMargin.Left + m.BtnMargin.Right;
@@ -235,7 +179,7 @@ internal sealed class PopupToolbarWindow : Window
     /// </summary>
     private void PartitionTwoLayersSymmetrically(
         IReadOnlyList<PopupActionItem> actions,
-        SizeMetrics m,
+        FlyoutMetrics m,
         out List<PopupActionItem> lowerItems,
         out List<PopupActionItem> upperItems)
     {
@@ -815,18 +759,23 @@ internal sealed class HoverTipWindow : Window
     public void ShowAnchored(string labelText, string keyHint, int screenAnchorX, int screenBelowY, int screenAboveY)
     {
         var pal = _cfg.Palette;
+        var m = W11WindowHelper.GetFlyoutMetrics(_cfg);
         Background = new SolidColorBrush(pal.BgBottom);
         if (_hwnd != IntPtr.Zero)
             W11WindowHelper.ApplyDwmFlyoutAttributes(_hwnd, pal, smallCorners: true);
 
         _card.Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90);
+        _labelTb.FontSize = m.TextFontSize;
         _labelTb.Foreground = new SolidColorBrush(pal.Text);
         _labelTb.Text = labelText;
 
         if (!string.IsNullOrEmpty(keyHint))
         {
             _keycapBorder.Visibility = Visibility.Visible;
+            _keycapBorder.MinWidth = m.KeycapWidth;
+            _keycapBorder.Height = m.KeycapHeight;
             _keycapBorder.Background = new SolidColorBrush(pal.KeycapBg);
+            _keycapTb.FontSize = m.KeycapFontSize;
             _keycapTb.Foreground = new SolidColorBrush(pal.KeycapText);
             _keycapTb.Text = keyHint;
         }

@@ -250,20 +250,21 @@ internal sealed class TrayFlyoutWindow : Window
     {
         _cfg = cfg;
         var pal = cfg.UpdatePalette();
+        var m = W11WindowHelper.GetFlyoutMetrics(cfg);
 
         W11WindowHelper.ConfigureDwmFlyoutChrome(this);
 
-        var stack = new StackPanel { Orientation = Orientation.Vertical, Width = 256 };
+        var stack = new StackPanel { Orientation = Orientation.Vertical, Width = Math.Max(215, m.MenuSingleMaxWidth) };
         var hoverBg = new LinearGradientBrush(pal.HoverTop, pal.HoverBottom, 90);
         var hoverBorder = new SolidColorBrush(pal.HoverBorder.Value);
 
-        var hdr = new DockPanel { Margin = new Thickness(10, 4, 10, 6) };
+        var hdr = new DockPanel { Margin = new Thickness(6, 2, 6, 4) };
         hdr.Children.Add(new TextBlock
         {
             Text = "SparkBar",
-            FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI"),
+            FontFamily = W11WindowHelper.DisplayFont,
             FontWeight = FontWeights.SemiBold,
-            FontSize = 13,
+            FontSize = m.CardTitleFontSize,
             Foreground = new SolidColorBrush(pal.Text),
             VerticalAlignment = VerticalAlignment.Center
         });
@@ -282,7 +283,8 @@ internal sealed class TrayFlyoutWindow : Window
             Child = new TextBlock
             {
                 Text = isEnabled ? "Active" : "Paused",
-                FontSize = 10.5,
+                FontFamily = W11WindowHelper.TextFont,
+                FontSize = m.CardSubFontSize,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = new SolidColorBrush(isEnabled
                     ? (pal.IsLight ? Color.FromRgb(0x16, 0xA3, 0x4A) : Color.FromRgb(0x34, 0xD3, 0x99))
@@ -295,18 +297,21 @@ internal sealed class TrayFlyoutWindow : Window
 
         void AddDivider()
         {
-            stack.Children.Add(new Border
+            var div = new Border
             {
                 Height = 1,
                 Background = new SolidColorBrush(pal.Separator),
-                Margin = new Thickness(8, 4, 8, 4)
-            });
+                SnapsToDevicePixels = true,
+                Margin = new Thickness(4, 3, 4, 3)
+            };
+            RenderOptions.SetEdgeMode(div, EdgeMode.Aliased);
+            stack.Children.Add(div);
         }
 
         Border MakeRow(string iconGlyph, string label, string rightBadge, bool bold, Action onClick)
         {
-            var g = new Grid { Height = 32 };
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(32) });
+            var g = new Grid { Height = m.MenuRowHeight + 2 };
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(m.FavTileSize + 8) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -314,7 +319,7 @@ internal sealed class TrayFlyoutWindow : Window
             {
                 Text = iconGlyph,
                 FontFamily = new FontFamily(cfg.IconFontFamily),
-                FontSize = 14,
+                FontSize = Math.Max(11, m.TextFontSize + 1),
                 Foreground = new SolidColorBrush(pal.Text),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
@@ -323,9 +328,9 @@ internal sealed class TrayFlyoutWindow : Window
             var tb = new TextBlock
             {
                 Text = label,
-                FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"),
+                FontFamily = W11WindowHelper.TextFont,
                 FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
-                FontSize = 13,
+                FontSize = m.TextFontSize,
                 Foreground = new SolidColorBrush(pal.Text),
                 VerticalAlignment = VerticalAlignment.Center
             };
@@ -337,10 +342,11 @@ internal sealed class TrayFlyoutWindow : Window
                 var badge = new TextBlock
                 {
                     Text = rightBadge,
-                    FontSize = 11,
+                    FontFamily = W11WindowHelper.TextFont,
+                    FontSize = m.CardSubFontSize,
                     Foreground = new SolidColorBrush(pal.SubText),
                     VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(6, 0, 8, 0)
+                    Margin = new Thickness(6, 0, 6, 0)
                 };
                 Grid.SetColumn(badge, 2);
                 g.Children.Add(badge);
@@ -348,11 +354,11 @@ internal sealed class TrayFlyoutWindow : Window
 
             var b = new Border
             {
-                CornerRadius = new CornerRadius(6),
+                CornerRadius = new CornerRadius(m.BtnCornerRadius),
                 Background = Brushes.Transparent,
                 BorderBrush = Brushes.Transparent,
                 BorderThickness = new Thickness(1),
-                Margin = new Thickness(0, 1, 0, 1),
+                Margin = new Thickness(0, 0.5, 0, 0.5),
                 Cursor = Cursors.Hand,
                 Child = g
             };
@@ -367,7 +373,7 @@ internal sealed class TrayFlyoutWindow : Window
         stack.Children.Add(MakeRow("\uE8C8", "Clipboard History", "Ctrl+Alt+V", false, onOpenClipboardHistory));
         stack.Children.Add(MakeRow("\uE8F8", "Exclude active app", "Ctrl+Alt+X", false, onToggleExcludeActiveApp));
 
-        var engineSubPanel = new StackPanel { Orientation = Orientation.Vertical, Visibility = Visibility.Collapsed, Margin = new Thickness(12, 2, 4, 2) };
+        var engineSubPanel = new StackPanel { Orientation = Orientation.Vertical, Visibility = Visibility.Collapsed, Margin = new Thickness(10, 2, 2, 2) };
         foreach (var eng in cfg.SearchEngines)
         {
             string engName = eng.Name;
@@ -387,11 +393,20 @@ internal sealed class TrayFlyoutWindow : Window
         stack.Children.Add(MakeRow("\uE72C", "Reload configuration", "", false, onReload));
         stack.Children.Add(MakeRow("\uE7E8", "Exit", "", false, onExit));
 
+        double padX = Math.Round(m.CardPadding.Left * 1.5);
+        double padY = Math.Round(m.CardPadding.Top * 1.5);
+        var topHighlight = W11WindowHelper.CreateTopHighlight(pal, topNegativeMargin: -padY);
+        var inner = new Grid();
+        inner.Children.Add(topHighlight);
+        inner.Children.Add(stack);
+
         _card = new Border
         {
-            Padding = new Thickness(6),
+            Padding = new Thickness(padX, padY, padX, padY),
             Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90),
-            Child = stack
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true,
+            Child = inner
         };
 
         Content = _card;
@@ -399,7 +414,7 @@ internal sealed class TrayFlyoutWindow : Window
 
     public void ShowNearTray(int screenX, int screenY)
     {
-        W11WindowHelper.MakeNonActivatingFlyout(this, _cfg.Palette);
+        W11WindowHelper.MakeNonActivatingFlyout(this, _cfg.Palette, smallCorners: W11WindowHelper.GetFlyoutMetrics(_cfg).SmallWindowCorners);
         Show();
         UpdateLayout();
 

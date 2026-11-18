@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -13,55 +15,74 @@ internal sealed class QrWindow : Window
 {
     private readonly Border _card;
     private readonly ConfigService _cfg;
+    private readonly Dictionary<string, Action> _hintMap = new(StringComparer.OrdinalIgnoreCase);
     private bool _closing;
 
     public IntPtr Hwnd => new WindowInteropHelper(this).Handle;
+
+    public bool HasHintKey(string key) => !_closing && _hintMap.ContainsKey(key);
+
+    public void InvokeHintKey(string key)
+    {
+        if (!_closing && _hintMap.TryGetValue(key, out var fn))
+            fn?.Invoke();
+    }
 
     public QrWindow(ConfigService cfg, BitmapSource qrBitmap, string sourceText, Action<string> onToast)
     {
         _cfg = cfg;
         var pal = cfg.Palette;
+        var m = W11WindowHelper.GetFlyoutMetrics(cfg);
 
         W11WindowHelper.ConfigureDwmFlyoutChrome(this);
 
         var stack = new StackPanel { Orientation = Orientation.Vertical };
 
-        var header = new DockPanel { Margin = new Thickness(2, 0, 2, 10) };
+        var header = new DockPanel { Margin = new Thickness(0, 0, 0, 7) };
         var title = new TextBlock
         {
-            Text = "QR Code",
-            FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI"),
-            FontWeight = FontWeights.SemiBold,
-            FontSize = 14,
-            Foreground = new SolidColorBrush(pal.Text),
+            Text = "QR CODE",
+            FontFamily = W11WindowHelper.TextFont,
+            FontWeight = FontWeights.Bold,
+            FontSize = m.MenuHeaderFontSize,
+            Foreground = new SolidColorBrush(pal.SubText),
             VerticalAlignment = VerticalAlignment.Center
         };
-        var sub = new TextBlock
+        var charBadge = new Border
         {
-            Text = $"{sourceText.Length} chars",
-            FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"),
-            FontSize = 11.5,
-            Foreground = new SolidColorBrush(pal.SubText),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(5, 1, 5, 1),
+            Background = new SolidColorBrush(pal.PillFill),
+            BorderBrush = new SolidColorBrush(pal.PillBorder),
+            BorderThickness = new Thickness(1),
             HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = $"{sourceText.Length} chars",
+                FontFamily = W11WindowHelper.TextFont,
+                FontSize = m.CardSubFontSize - 0.5,
+                Foreground = new SolidColorBrush(pal.SubText)
+            }
         };
         DockPanel.SetDock(title, Dock.Left);
-        DockPanel.SetDock(sub, Dock.Right);
+        DockPanel.SetDock(charBadge, Dock.Right);
         header.Children.Add(title);
-        header.Children.Add(sub);
+        header.Children.Add(charBadge);
         stack.Children.Add(header);
 
         var imgFrame = new Border
         {
-            CornerRadius = new CornerRadius(10),
+            CornerRadius = new CornerRadius(8),
             Background = Brushes.White,
-            Padding = new Thickness(10),
-            BorderBrush = new SolidColorBrush(pal.Border),
+            Padding = new Thickness(8),
+            BorderBrush = new SolidColorBrush(pal.Separator),
             BorderThickness = new Thickness(1),
+            HorizontalAlignment = HorizontalAlignment.Center,
             Child = new Image
             {
-                Width = 260,
-                Height = 260,
+                Width = m.QrImageSize,
+                Height = m.QrImageSize,
                 Source = qrBitmap,
                 Stretch = Stretch.Uniform
             }
@@ -73,44 +94,16 @@ internal sealed class QrWindow : Window
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0, 12, 0, 2)
+            Margin = new Thickness(0, 8, 0, 0)
         };
 
-        Button MakeBtn(string icon, string labelText, Action onClick)
-        {
-            var sp = new StackPanel { Orientation = Orientation.Horizontal };
-            sp.Children.Add(new TextBlock
-            {
-                Text = icon,
-                FontFamily = new FontFamily(cfg.IconFontFamily),
-                FontSize = 12,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 6, 0)
-            });
-            sp.Children.Add(new TextBlock
-            {
-                Text = labelText,
-                FontSize = 12,
-                FontWeight = FontWeights.SemiBold,
-                VerticalAlignment = VerticalAlignment.Center
-            });
-            var b = new Button
-            {
-                Content = sp,
-                Padding = new Thickness(12, 6, 12, 6),
-                Margin = new Thickness(4, 0, 4, 0),
-                Cursor = System.Windows.Input.Cursors.Hand
-            };
-            b.Click += (_, _) => onClick();
-            return b;
-        }
-
-        btnRow.Children.Add(MakeBtn("\uE8C8", "Copy Image", () =>
+        void CopyQr()
         {
             try { Clipboard.SetImage(qrBitmap); onToast?.Invoke("QR code image copied"); } catch { }
-        }));
+            Dismiss();
+        }
 
-        btnRow.Children.Add(MakeBtn("\uE74E", "Save PNG...", () =>
+        void SaveQr()
         {
             var dlg = new SaveFileDialog
             {
@@ -129,25 +122,31 @@ internal sealed class QrWindow : Window
                 }
                 catch { }
             }
-        }));
+            Dismiss();
+        }
 
+        _hintMap["1"] = CopyQr;
+        _hintMap["2"] = SaveQr;
+
+        btnRow.Children.Add(W11WindowHelper.CreateActionPillButton(cfg, "\uE8C8", "Copy QR", "1", isPrimary: true, pal, m, CopyQr));
+        btnRow.Children.Add(W11WindowHelper.CreateActionPillButton(cfg, "\uE74E", "Save PNG", "2", isPrimary: false, pal, m, SaveQr));
         stack.Children.Add(btnRow);
 
-        stack.Children.Add(new TextBlock
-        {
-            Text = "Press Esc or click outside to close",
-            FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"),
-            FontSize = 11.5,
-            Foreground = new SolidColorBrush(pal.SubText),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0, 8, 0, 0)
-        });
+        double padX = Math.Round(m.CardPadding.Left * 3.0);
+        double padY = Math.Round(m.CardPadding.Top * 2.5);
+        var topHighlight = W11WindowHelper.CreateTopHighlight(pal, topNegativeMargin: -padY);
+
+        var inner = new Grid();
+        inner.Children.Add(topHighlight);
+        inner.Children.Add(stack);
 
         _card = new Border
         {
-            Padding = new Thickness(16, 14, 16, 14),
+            Padding = new Thickness(padX, padY, padX, padY),
             Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90),
-            Child = stack
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true,
+            Child = inner
         };
 
         Content = _card;
@@ -155,20 +154,12 @@ internal sealed class QrWindow : Window
 
     public void ShowAt(int screenX, int screenY)
     {
-        W11WindowHelper.MakeNonActivatingFlyout(this, _cfg.Palette);
+        var m = W11WindowHelper.GetFlyoutMetrics(_cfg);
+        W11WindowHelper.MakeNonActivatingFlyout(this, _cfg.Palette, smallCorners: m.SmallWindowCorners);
         Show();
         UpdateLayout();
 
-        double scale = Native.ScaleAt(screenX, screenY);
-        var work = Native.WorkAreaAt(screenX, screenY, out _);
-        int physW = (int)Math.Round(ActualWidth * scale);
-        int physH = (int)Math.Round(ActualHeight * scale);
-        int pad = (int)Math.Round(6 * scale);
-
-        int px = Math.Max(work.Left + pad, Math.Min(screenX - physW / 2, work.Right - physW - pad));
-        int py = Math.Max(work.Top + pad, Math.Min(screenY - physH / 2, work.Bottom - physH - pad));
-        Native.MoveWindowPhysical(Hwnd, px, py);
-
+        W11WindowHelper.PositionFlyoutNearPoint(Hwnd, this, screenX, screenY, preferAbove: false);
         W11WindowHelper.AnimateFlyoutIn(this, _card, _cfg.FadeInMs, W11WindowHelper.ShouldAnimate(_cfg));
     }
 

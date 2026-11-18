@@ -22,9 +22,13 @@
 
 - **⚡ Instantaneous Pre-Warmed DWM Flyouts (`< 25 ms`)**
   - Uses persistent, pre-warmed Win32 `HWND`s with native Windows 11 Desktop Window Manager (`DWMWA_WINDOW_CORNER_PREFERENCE`, `DWMWA_BORDER_COLOR`, and Mica/Acrylic backdrops) instead of slow software-layered windows.
-- **📐 Compact Two-Layer Smart Deck & 4 Sharp Size Presets (`mini`, `compact`, `normal`, `large`)**
+- **📐 Compact Two-Layer Smart Deck & Unified Flyout Design (`mini`, `compact`, `normal`, `large`)**
   - **Two-Layer Smart Layout**: Cuts horizontal mouse travel in half by placing **selection-relevant actions** (Contextual URL/Math/Unit/Path/Color/Define pills + `Copy`/`Cut`/`Paste` + `Default Search`) in the **lower row right next to your cursor**, and **secondary utilities** (`+Copy`, `QR`, `...`, `Translate`, `Aa`) in the **upper row**.
-  - **4 Razor-Sharp Size Presets**: Choose between **Mini** (`22px`), **Compact** (`26px`, default), **Normal** (`30px`), and **Large** (`34px`) in **Settings → General**, rendered with pixel-snapped `TextFormattingMode.Display` ClearType.
+  - **Unified Size Scaling & Compact 2-Column Submenus**: Every flyout—Main Toolbar, **Search With**, symmetrical **2-Column Transform Text (`Aa`)**, **In-App Result Card**, **QR Code**, **Toast**, and **Tray Menu**—shares a unified `FlyoutMetrics` design system across **Mini** (`20px`), **Compact** (`24px`, default), **Normal** (`29px`), and **Large** (`33px`) presets.
+- **📖 In-App Define, Translate & Text Inspector Card (No Browser Tabs Required)**
+  - **In-App Dictionary (`Define`)**: Fetches phonetics, parts of speech, definitions, examples, and clickable synonyms directly inside a sleek Windows 11 flyout card (with automatic Wikipedia summary fallback for proper nouns and technical terms).
+  - **In-App Translator (`Translate`)**: Auto-detects the source language, translates directly inside the popup, lets you switch target languages inline (`EN`, `NE`, `HI`, `ES`, `FR`, `DE`, `JA`, `ZH`, `KO`, `PT`, `RU`, `AR`, `IT`), and offers **1-click Replace Selection** in editable apps or **Copy** (`[1]`, `[2]`, `[3]`).
+  - **Text Inspector (`1w 7c`)**: Opens a compact breakdown of Words, Characters, No-Space Chars, Lines, Reading Time, UTF-8 Bytes, plus 1-click copyable URL-encoded and Base64 variants.
 - **🧠 Smart Contextual Pills**
   - **Math Calculator**: Evaluates arithmetic and scientific expressions inline (`24 * (7 + 3)` → `= 240`, `sqrt(144) + 8` → `= 20`, `2 * pi * 10`, `sin`, `cos`, `tan`, `log`, `ln`, `abs`, `round`).
   - **Unit, Base & Timestamp Converter**: Automatically converts lengths (`km` ↔ `mi`, `m` ↔ `ft`, `cm` ↔ `in`, `mm` ↔ `in`), weights (`kg` ↔ `lbs`, `g` ↔ `oz`), temperatures (`°C` ↔ `°F`), speeds (`km/h` ↔ `mph`, `m/s` ↔ `km/h`), volumes (`L` ↔ `gal`, `mL` ↔ `fl oz`), areas (`sqft` ↔ `m²`), data sizes (`TB`/`GB`/`MB`/`KB`), hex (`0x...`), binary (`0b...`), and 10/13-digit Unix timestamps (`🕒 UTC`).
@@ -49,7 +53,11 @@
 
 ## 📸 Screenshots
 
-| Transform Text (`Aa`) Menu | Windows 11 Fluent Settings — General |
+| In-App Dictionary Card | In-App Translator Card |
+| :---: | :---: |
+| ![In-App Define Card](docs/in_app_define.png) | ![In-App Translate Card](docs/in_app_translate.png) |
+
+| Symmetrical 2-Column `Aa` Menu | Windows 11 Fluent Settings — General |
 | :---: | :---: |
 | ![Transform Text Menu](docs/option_menu.png) | ![Settings General](docs/settings_general.png) |
 
@@ -84,6 +92,9 @@ In **Settings → Search & URLs**, you can add both web search engines and **loc
 | **`Ctrl + Alt + X`** | Instantly exclude or re-enable the currently active application (`.exe`) |
 | **`1` – `9`, `A` – `Z`** *(while bar/menu is open)* | Trigger the corresponding toolbar button or menu item via keyboard |
 | **`Right-Click` on Copy** *(or `Shift + Click`)* | Append selection to clipboard on a new line (`+Copy`) |
+| **`Right-Click` on Define / Web Fallback** | Open the full dictionary entry in your browser |
+| **`Right-Click` on Translate** | Open the in-app **Translate** card with the language selector expanded |
+| **`Right-Click` on Stats (`1w 7c`)** | Copy word/character stats immediately instead of opening the Inspector card |
 | **`Right-Click` on Paste** | Open the **Clipboard History** flyout menu |
 | **`Right-Click` on Default Search** | Open the Quick Default Search Engine switcher |
 | **`Right-Click` on Pinned Search** | Set that engine as your new Default Search Engine live |

@@ -92,8 +92,10 @@ internal sealed class ToastWindow : Window
     {
         _holdTimer.Stop();
         var pal = _cfg.Palette;
+        var m = W11WindowHelper.GetFlyoutMetrics(_cfg);
+        Background = new SolidColorBrush(pal.BgBottom);
         if (_hwnd != IntPtr.Zero)
-            W11WindowHelper.ApplyDwmFlyoutAttributes(_hwnd, pal);
+            W11WindowHelper.ApplyDwmFlyoutAttributes(_hwnd, pal, smallCorners: m.SmallWindowCorners);
 
         text = System.Text.RegularExpressions.Regex.Replace((text ?? "").Trim(), @"\s+", " ");
         if (text.Length > 90) text = text[..89] + "…";
@@ -119,11 +121,18 @@ internal sealed class ToastWindow : Window
             badgeBg = pal.IsLight ? Color.FromRgb(0xDC, 0xFC, 0xE7) : Color.FromRgb(0x13, 0x2D, 0x24);
         }
 
+        _card.Padding = m.ToastPadding;
         _card.Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90);
+        _badge.Width = m.ToastBadgeSize;
+        _badge.Height = m.ToastBadgeSize;
+        _badge.CornerRadius = new CornerRadius(m.ToastBadgeSize / 2.0);
+        _badge.Margin = new Thickness(0, 0, 7, 0);
         _badge.Background = new SolidColorBrush(badgeBg);
         _badge.BorderBrush = new SolidColorBrush(accent);
+        _badgeGlyph.FontSize = Math.Max(9.5, m.ToastBadgeSize * 0.5);
         _badgeGlyph.Text = glyph;
         _badgeGlyph.Foreground = new SolidColorBrush(accent);
+        _label.FontSize = m.ToastFontSize;
         _label.Foreground = new SolidColorBrush(pal.Text);
         _label.Text = text;
 

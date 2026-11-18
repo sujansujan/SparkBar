@@ -19,12 +19,14 @@ public sealed class OptionMenuItem
 }
 
 /// <summary>
-/// Pre-warmed, persistent option menu flyout window. Reuses its HWND &amp; DirectX surface for &lt; 2ms display.
+/// Pre-warmed, persistent option menu flyout window. Scales uniformly via FlyoutMetrics
+/// and automatically packs large menus (e.g. Change Case) into a symmetrical 2-column grid.
 /// </summary>
 internal sealed class OptionMenuWindow : Window
 {
     private readonly ConfigService _cfg;
     private readonly Border _card;
+    private readonly Border _topHighlight;
     private readonly StackPanel _stack;
     private readonly Dictionary<string, Action> _hintMap = new(StringComparer.OrdinalIgnoreCase);
     private bool _isOpen;
@@ -50,15 +52,22 @@ internal sealed class OptionMenuWindow : Window
 
         _stack = new StackPanel
         {
-            Orientation = Orientation.Vertical,
-            Width = 268
+            Orientation = Orientation.Vertical
         };
+
+        _topHighlight = W11WindowHelper.CreateTopHighlight(pal, topNegativeMargin: -4.5);
+
+        var inner = new Grid();
+        inner.Children.Add(_topHighlight);
+        inner.Children.Add(_stack);
 
         _card = new Border
         {
-            Padding = new Thickness(6),
+            Padding = new Thickness(4.5),
             Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90),
-            Child = _stack
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true,
+            Child = inner
         };
 
         Content = _card;
@@ -78,70 +87,83 @@ internal sealed class OptionMenuWindow : Window
     public void ShowItemsAt(IReadOnlyList<OptionMenuItem> items, string headerTitle, int screenX, int screenY)
     {
         var pal = _cfg.Palette;
+        var m = W11WindowHelper.GetFlyoutMetrics(_cfg);
+
+        Background = new SolidColorBrush(pal.BgBottom);
         if (Hwnd != IntPtr.Zero)
         {
             Native.RemoveExStyle(Hwnd, Native.WS_EX_TRANSPARENT);
-            W11WindowHelper.ApplyDwmFlyoutAttributes(Hwnd, pal);
+            W11WindowHelper.ApplyDwmFlyoutAttributes(Hwnd, pal, smallCorners: m.SmallWindowCorners);
         }
 
+        double padX = Math.Round(m.CardPadding.Left * 1.5);
+        double padY = Math.Round(m.CardPadding.Top * 1.5);
+        _card.Padding = new Thickness(padX, padY, padX, padY);
         _card.Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90);
+        _topHighlight.Background = new SolidColorBrush(pal.IsLight ? Colors.White : Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
+        _topHighlight.Margin = new Thickness(0, -padY, 0, 0);
+
         _stack.Children.Clear();
         _hintMap.Clear();
 
-        var textFont = new FontFamily("Segoe UI Variable Text, Segoe UI");
         var textBrush = new SolidColorBrush(pal.Text);
         var subBrush = new SolidColorBrush(pal.SubText);
         var sepBrush = new SolidColorBrush(pal.Separator);
         var accentBrush = new SolidColorBrush(pal.Accent);
         var accentTextBrush = new SolidColorBrush(pal.AccentText);
-        var keycapBgBrush = new SolidColorBrush(pal.KeycapBg);
-        var keycapTextBrush = new SolidColorBrush(pal.KeycapText);
         var hoverBg = new LinearGradientBrush(pal.HoverTop, pal.HoverBottom, 90);
         var hoverBorder = new SolidColorBrush(pal.HoverBorder.Value);
+
+        bool isClipboardMenu = string.Equals(headerTitle, "CLIPBOARD HISTORY", StringComparison.OrdinalIgnoreCase);
+        bool useTwoColGrid = !isClipboardMenu && items.Count > 6;
+
+        _stack.MinWidth = useTwoColGrid ? (m.MenuTwoColItemWidth * 2) + 4 : m.MenuSingleMinWidth;
+        _stack.MaxWidth = useTwoColGrid ? (m.MenuTwoColItemWidth * 2) + 8 : (isClipboardMenu ? m.CardWidth : m.MenuSingleMaxWidth);
 
         if (!string.IsNullOrEmpty(headerTitle))
         {
             _stack.Children.Add(new TextBlock
             {
                 Text = headerTitle,
-                FontFamily = textFont,
+                FontFamily = W11WindowHelper.TextFont,
                 FontWeight = FontWeights.Bold,
-                FontSize = 11,
+                FontSize = m.MenuHeaderFontSize,
                 Foreground = subBrush,
-                Margin = new Thickness(10, 2, 10, 5)
+                Margin = new Thickness(6, 1, 6, 3)
             });
-            _stack.Children.Add(new Border
+            var hdrDiv = new Border
             {
                 Height = 1,
                 Background = sepBrush,
-                Margin = new Thickness(8, 0, 8, 4)
-            });
+                SnapsToDevicePixels = true,
+                Margin = new Thickness(4, 0, 4, 3)
+            };
+            RenderOptions.SetEdgeMode(hdrDiv, EdgeMode.Aliased);
+            _stack.Children.Add(hdrDiv);
         }
 
-        for (int i = 0; i < items.Count; i++)
+        Border BuildRowBorder(OptionMenuItem item, string hint, bool isTwoCol)
         {
-            var item = items[i];
-            int idx = i + 1;
-            string hint = SmartParser.HintForIndex(idx);
-            if (item.OnClick != null)
-                _hintMap[hint] = item.OnClick;
-
-            bool divBelow = (idx == 1 && item.Accent);
-
-            var rowGrid = new Grid { Height = 32 };
-            rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
+            double tileColW = isTwoCol ? (m.FavTileSize + 8) : (m.FavTileSize + 10);
+            var rowGrid = new Grid
+            {
+                Height = m.MenuRowHeight,
+                SnapsToDevicePixels = true,
+                UseLayoutRounding = true
+            };
+            rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(tileColW) });
             rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var leftAccentBar = new Border
             {
-                Width = 3,
-                Height = 14,
-                CornerRadius = new CornerRadius(1.5),
+                Width = 2.5,
+                Height = Math.Max(10, m.MenuRowHeight * 0.52),
+                CornerRadius = new CornerRadius(1.25),
                 Background = accentBrush,
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(2, 0, 0, 0),
+                Margin = new Thickness(1.5, 0, 0, 0),
                 Visibility = Visibility.Hidden
             };
             rowGrid.Children.Add(leftAccentBar);
@@ -150,13 +172,14 @@ internal sealed class OptionMenuWindow : Window
             {
                 var tile = new Border
                 {
-                    Width = 24,
-                    Height = 24,
-                    CornerRadius = new CornerRadius(5),
+                    Width = m.FavTileSize,
+                    Height = m.FavTileSize,
+                    CornerRadius = new CornerRadius(4),
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(4, 0, 0, 0),
-                    BorderThickness = new Thickness(1)
+                    Margin = new Thickness(3, 0, 0, 0),
+                    BorderThickness = new Thickness(1),
+                    SnapsToDevicePixels = true
                 };
 
                 if (item.Image != null)
@@ -165,8 +188,8 @@ internal sealed class OptionMenuWindow : Window
                     tile.BorderBrush = sepBrush;
                     var img = new Image
                     {
-                        Width = 18,
-                        Height = 18,
+                        Width = m.FavImgSize,
+                        Height = m.FavImgSize,
                         Source = item.Image,
                         Stretch = Stretch.Uniform
                     };
@@ -175,17 +198,15 @@ internal sealed class OptionMenuWindow : Window
                 }
                 else
                 {
-                    tile.Background = new SolidColorBrush(item.Accent
-                        ? (pal.IsLight ? Color.FromRgb(0xDB, 0xEA, 0xFE) : Color.FromRgb(0x17, 0x2B, 0x46))
-                        : pal.Surface);
-                    tile.BorderBrush = item.Accent ? accentBrush : sepBrush;
+                    tile.Background = new SolidColorBrush(item.Accent ? pal.AccentBgTop : pal.Surface);
+                    tile.BorderBrush = item.Accent ? new SolidColorBrush(pal.AccentRim) : sepBrush;
                     tile.Child = new TextBlock
                     {
                         Text = item.Glyph,
-                        FontFamily = textFont,
+                        FontFamily = W11WindowHelper.TextFont,
                         FontWeight = FontWeights.SemiBold,
-                        FontSize = 11,
-                        Foreground = item.Accent ? accentBrush : textBrush,
+                        FontSize = Math.Max(8.5, m.TextFontSize - 1.5),
+                        Foreground = item.Accent ? accentTextBrush : textBrush,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center
                     };
@@ -197,50 +218,30 @@ internal sealed class OptionMenuWindow : Window
             var lbl = new TextBlock
             {
                 Text = item.Label,
-                FontFamily = textFont,
+                FontFamily = W11WindowHelper.TextFont,
                 FontWeight = item.Accent ? FontWeights.SemiBold : FontWeights.Normal,
-                FontSize = 13,
+                FontSize = m.TextFontSize,
                 Foreground = item.Accent ? accentTextBrush : textBrush,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                Margin = new Thickness(5, 0, 6, 0)
+                Margin = new Thickness(4, 0, 4, 0)
             };
             Grid.SetColumn(lbl, 1);
             rowGrid.Children.Add(lbl);
 
-            var keycap = new Border
-            {
-                MinWidth = 22,
-                Height = 18,
-                Padding = new Thickness(4, 0, 4, 0),
-                CornerRadius = new CornerRadius(4),
-                Background = keycapBgBrush,
-                BorderBrush = sepBrush,
-                BorderThickness = new Thickness(1),
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 7, 0),
-                Child = new TextBlock
-                {
-                    Text = hint,
-                    FontFamily = textFont,
-                    FontWeight = FontWeights.SemiBold,
-                    FontSize = 10,
-                    Foreground = keycapTextBrush,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                }
-            };
+            var keycap = W11WindowHelper.CreateKeycapBadge(hint, pal, m, new Thickness(0, 0, 4, 0));
             Grid.SetColumn(keycap, 2);
             rowGrid.Children.Add(keycap);
 
             var rowBorder = new Border
             {
-                CornerRadius = new CornerRadius(6),
+                CornerRadius = new CornerRadius(m.BtnCornerRadius),
                 Background = Brushes.Transparent,
                 BorderBrush = Brushes.Transparent,
                 BorderThickness = new Thickness(1),
-                Margin = new Thickness(0, 1, 0, 1),
+                Margin = new Thickness(isTwoCol ? 1 : 0, 0.5, isTwoCol ? 1 : 0, 0.5),
                 Cursor = Cursors.Hand,
+                SnapsToDevicePixels = true,
                 Child = rowGrid
             };
 
@@ -263,16 +264,85 @@ internal sealed class OptionMenuWindow : Window
                 item.OnClick?.Invoke();
             };
 
-            _stack.Children.Add(rowBorder);
+            return rowBorder;
+        }
 
-            if (divBelow)
+        if (useTwoColGrid)
+        {
+            int startIdx = 0;
+            if (items[0].Accent)
             {
-                _stack.Children.Add(new Border
+                // Featured top banner item (e.g., stats summary in TRANSFORM TEXT) spans full width cleanly
+                string h0 = SmartParser.HintForIndex(1);
+                if (items[0].OnClick != null) _hintMap[h0] = items[0].OnClick;
+                _stack.Children.Add(BuildRowBorder(items[0], h0, isTwoCol: false));
+
+                var div = new Border
                 {
                     Height = 1,
                     Background = sepBrush,
-                    Margin = new Thickness(8, 3, 8, 3)
-                });
+                    SnapsToDevicePixels = true,
+                    Margin = new Thickness(4, 2, 4, 2)
+                };
+                RenderOptions.SetEdgeMode(div, EdgeMode.Aliased);
+                _stack.Children.Add(div);
+                startIdx = 1;
+            }
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(m.MenuTwoColItemWidth) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(m.MenuTwoColItemWidth) });
+
+            int remaining = items.Count - startIdx;
+            int rows = (remaining + 1) / 2;
+            for (int r = 0; r < rows; r++)
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            for (int i = startIdx; i < items.Count; i++)
+            {
+                var item = items[i];
+                string hint = SmartParser.HintForIndex(i + 1);
+                if (item.OnClick != null) _hintMap[hint] = item.OnClick;
+
+                int rel = i - startIdx;
+                int row = rel / 2;
+                int col = rel % 2;
+
+                var rb = BuildRowBorder(item, hint, isTwoCol: true);
+                Grid.SetRow(rb, row);
+                Grid.SetColumn(rb, col);
+                // If the final row has a single item, span both columns so the card silhouette remains 100% symmetrical
+                if (rel == remaining - 1 && col == 0)
+                    Grid.SetColumnSpan(rb, 2);
+
+                grid.Children.Add(rb);
+            }
+            _stack.Children.Add(grid);
+        }
+        else
+        {
+            for (int i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                int idx = i + 1;
+                string hint = SmartParser.HintForIndex(idx);
+                if (item.OnClick != null)
+                    _hintMap[hint] = item.OnClick;
+
+                _stack.Children.Add(BuildRowBorder(item, hint, isTwoCol: false));
+
+                if (idx == 1 && item.Accent && items.Count > 1)
+                {
+                    var div = new Border
+                    {
+                        Height = 1,
+                        Background = sepBrush,
+                        SnapsToDevicePixels = true,
+                        Margin = new Thickness(4, 2, 4, 2)
+                    };
+                    RenderOptions.SetEdgeMode(div, EdgeMode.Aliased);
+                    _stack.Children.Add(div);
+                }
             }
         }
 
@@ -280,16 +350,7 @@ internal sealed class OptionMenuWindow : Window
             Show();
         UpdateLayout();
 
-        double scale = Native.ScaleAt(screenX, screenY);
-        var work = Native.WorkAreaAt(screenX, screenY, out _);
-        int physW = (int)Math.Round(ActualWidth * scale);
-        int physH = (int)Math.Round(ActualHeight * scale);
-        int pad = (int)Math.Round(6 * scale);
-
-        int px = Math.Max(work.Left + pad, Math.Min(screenX - physW / 4, work.Right - physW - pad));
-        int py = Math.Max(work.Top + pad, Math.Min(screenY + (int)Math.Round(18 * scale), work.Bottom - physH - pad));
-
-        Native.MoveWindowPhysical(Hwnd, px, py);
+        W11WindowHelper.PositionFlyoutNearPoint(Hwnd, this, screenX, screenY, preferAbove: false);
         _isOpen = true;
 
         W11WindowHelper.AnimateFlyoutIn(this, _card, _cfg.FadeInMs, W11WindowHelper.ShouldAnimate(_cfg));
