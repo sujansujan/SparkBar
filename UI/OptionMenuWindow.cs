@@ -84,7 +84,13 @@ internal sealed class OptionMenuWindow : Window
         Hide();
     }
 
-    public void ShowItemsAt(IReadOnlyList<OptionMenuItem> items, string headerTitle, int screenX, int screenY)
+    public void ShowItemsAt(
+        IReadOnlyList<OptionMenuItem> items,
+        string headerTitle,
+        int screenX,
+        int screenY,
+        Native.RECT primaryRect = default,
+        Action onBack = null)
     {
         var pal = _cfg.Palette;
         var m = W11WindowHelper.GetFlyoutMetrics(_cfg);
@@ -122,15 +128,40 @@ internal sealed class OptionMenuWindow : Window
 
         if (!string.IsNullOrEmpty(headerTitle))
         {
-            _stack.Children.Add(new TextBlock
+            var hdrGrid = new Grid { Margin = new Thickness(4, 1, 2, 3) };
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            if (onBack != null)
+            {
+                var backBtn = W11WindowHelper.CreateHeaderIconButton(_cfg, "\uE72B", "Back to toolbar (Backspace)", pal, m, () =>
+                {
+                    HideMenu();
+                    onBack();
+                });
+                backBtn.Margin = new Thickness(0, 0, 4, 0);
+                Grid.SetColumn(backBtn, 0);
+                hdrGrid.Children.Add(backBtn);
+            }
+
+            var hdrText = new TextBlock
             {
                 Text = headerTitle,
                 FontFamily = W11WindowHelper.TextFont,
                 FontWeight = FontWeights.Bold,
                 FontSize = m.MenuHeaderFontSize,
                 Foreground = subBrush,
-                Margin = new Thickness(6, 1, 6, 3)
-            });
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(hdrText, 1);
+            hdrGrid.Children.Add(hdrText);
+
+            var closeBtn = W11WindowHelper.CreateHeaderIconButton(_cfg, "\uE711", "Close (Esc)", pal, m, HideMenu);
+            Grid.SetColumn(closeBtn, 2);
+            hdrGrid.Children.Add(closeBtn);
+
+            _stack.Children.Add(hdrGrid);
             var hdrDiv = new Border
             {
                 Height = 1,
@@ -350,7 +381,7 @@ internal sealed class OptionMenuWindow : Window
             Show();
         UpdateLayout();
 
-        W11WindowHelper.PositionFlyoutNearPoint(Hwnd, this, screenX, screenY, preferAbove: false);
+        W11WindowHelper.PositionSecondaryFlyout(Hwnd, this, primaryRect, screenX, screenY);
         _isOpen = true;
 
         W11WindowHelper.AnimateFlyoutIn(this, _card, _cfg.FadeInMs, W11WindowHelper.ShouldAnimate(_cfg));

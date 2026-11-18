@@ -292,6 +292,72 @@ internal static class W11WindowHelper
         Native.MoveWindowPhysical(hwnd, px, py);
     }
 
+    /// <summary>
+    /// Positions a secondary popup (submenu, card, QR) directly in the same screen region
+    /// where the primary popup was displayed so zero extra mouse movement is needed.
+    /// </summary>
+    public static void PositionSecondaryFlyout(IntPtr hwnd, Window window, Native.RECT primaryRect, int fallbackX, int fallbackY)
+    {
+        if (hwnd == IntPtr.Zero || window == null) return;
+
+        if (primaryRect.Width > 0 && primaryRect.Height > 0)
+        {
+            Native.GetCursorPos(out var cur);
+            int centerX = (cur.X >= primaryRect.Left - 20 && cur.X <= primaryRect.Right + 20)
+                ? cur.X
+                : primaryRect.Left + primaryRect.Width / 2;
+
+            double scale = Native.ScaleAt(centerX, primaryRect.Top);
+            var work = Native.WorkAreaAt(centerX, primaryRect.Top, out _);
+            int physW = (int)Math.Round(window.ActualWidth * scale);
+            int physH = (int)Math.Round(window.ActualHeight * scale);
+            int pad = (int)Math.Round(6 * scale);
+
+            int px = Math.Max(work.Left + pad, Math.Min(centerX - physW / 2, work.Right - physW - pad));
+            int py = Math.Max(work.Top + pad, Math.Min(primaryRect.Top, work.Bottom - physH - pad));
+            Native.MoveWindowPhysical(hwnd, px, py);
+            return;
+        }
+
+        PositionFlyoutNearPoint(hwnd, window, fallbackX, fallbackY, preferAbove: true);
+    }
+
+    public static Border CreateHeaderIconButton(ConfigService cfg, string iconGlyph, string toolTip, ThemePalette pal, FlyoutMetrics m, Action onClick)
+    {
+        double sz = Math.Max(19, m.MenuRowHeight - 2);
+        var hoverBg = new LinearGradientBrush(pal.HoverTop, pal.HoverBottom, 90);
+        var hoverBorder = new SolidColorBrush(pal.HoverBorder.Value);
+
+        var tb = new TextBlock
+        {
+            Text = iconGlyph,
+            FontFamily = new FontFamily(cfg.IconFontFamily),
+            FontSize = 9.5,
+            Foreground = new SolidColorBrush(pal.SubText),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        var b = new Border
+        {
+            Width = sz,
+            Height = sz,
+            CornerRadius = new CornerRadius(m.BtnCornerRadius),
+            BorderThickness = new Thickness(1),
+            Background = Brushes.Transparent,
+            BorderBrush = Brushes.Transparent,
+            Cursor = Cursors.Hand,
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = toolTip,
+            Child = tb
+        };
+        b.MouseEnter += (_, _) => { b.Background = hoverBg; b.BorderBrush = hoverBorder; tb.Foreground = new SolidColorBrush(pal.Text); };
+        b.MouseLeave += (_, _) => { b.Background = Brushes.Transparent; b.BorderBrush = Brushes.Transparent; tb.Foreground = new SolidColorBrush(pal.SubText); };
+        b.MouseLeftButtonDown += (_, e) => { e.Handled = true; };
+        b.MouseLeftButtonUp += (_, e) => { e.Handled = true; onClick?.Invoke(); };
+        return b;
+    }
+
     public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     public const int DWMWA_BORDER_COLOR = 34;

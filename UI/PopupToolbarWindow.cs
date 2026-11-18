@@ -58,6 +58,7 @@ internal sealed class PopupToolbarWindow : Window
 
     public IntPtr Hwnd { get; private set; }
     public bool IsPopupOpen => _isOpen;
+    public Native.RECT LastScreenRect { get; private set; }
     public IReadOnlyList<string> VisibleTips => _visibleTips;
 
     public bool HasHintKey(string key) => _isOpen && _hintMap.ContainsKey(key);
@@ -625,6 +626,7 @@ internal sealed class PopupToolbarWindow : Window
         py = Math.Max(work.Top + pad, Math.Min(py, work.Bottom - physH - pad));
 
         Native.MoveWindowPhysical(Hwnd, px, py);
+        LastScreenRect = new Native.RECT { Left = px, Top = py, Right = px + physW, Bottom = py + physH };
         _isOpen = true;
 
         W11WindowHelper.AnimateFlyoutIn(this, _card, _cfg.FadeInMs, !instant && W11WindowHelper.ShouldAnimate(_cfg));
@@ -795,7 +797,7 @@ internal sealed class HoverTipWindow : Window
         int pad = (int)Math.Round(6 * scale);
 
         int tx = Math.Max(work.Left + pad, Math.Min(screenAnchorX - physW / 2, work.Right - physW - pad));
-        int ty = (screenBelowY + physH > work.Bottom - pad) ? (screenAboveY - physH) : screenBelowY;
+        int ty = (screenAboveY - physH >= work.Top + pad) ? (screenAboveY - physH) : screenBelowY;
 
         Native.MoveWindowPhysical(_hwnd, tx, ty);
     }

@@ -30,6 +30,7 @@ internal sealed class ResultCardWindow : Window
     private readonly Action<IntPtr, string> _onReplaceText;
     private readonly Action<string> _onOpenWebUrl;
     private readonly Action<string> _onToast;
+    private readonly Action _onBackToToolbar;
 
     private readonly Border _card;
     private readonly Border _topHighlight;
@@ -54,6 +55,7 @@ internal sealed class ResultCardWindow : Window
     private int _anchorY;
     private string _primaryCopyText = "";
     private bool _langPickerExpanded;
+    private Native.RECT _primaryRect;
 
     // Simple session cache for instant repeat opens
     private readonly Dictionary<string, DefinitionLookupResult> _defCache = new(StringComparer.OrdinalIgnoreCase);
@@ -75,13 +77,15 @@ internal sealed class ResultCardWindow : Window
         Action<string> onCopyText,
         Action<IntPtr, string> onReplaceText,
         Action<string> onOpenWebUrl,
-        Action<string> onToast)
+        Action<string> onToast,
+        Action onBackToToolbar = null)
     {
         _cfg = cfg;
         _onCopyText = onCopyText;
         _onReplaceText = onReplaceText;
         _onOpenWebUrl = onOpenWebUrl;
         _onToast = onToast;
+        _onBackToToolbar = onBackToToolbar;
 
         var pal = cfg.Palette;
         W11WindowHelper.ConfigureDwmFlyoutChrome(this);
@@ -183,7 +187,8 @@ internal sealed class ResultCardWindow : Window
         IntPtr targetWin,
         int screenX,
         int screenY,
-        bool expandLangPicker = false)
+        bool expandLangPicker = false,
+        Native.RECT primaryRect = default)
     {
         CancelPendingLookup();
 
@@ -193,6 +198,7 @@ internal sealed class ResultCardWindow : Window
         _targetWin = targetWin;
         _anchorX = screenX;
         _anchorY = screenY;
+        _primaryRect = primaryRect;
         _langPickerExpanded = expandLangPicker && mode == ResultCardMode.Translate;
 
         LoadModeContent(isInitialShow: true);
@@ -310,6 +316,17 @@ internal sealed class ResultCardWindow : Window
         while (_headerRow.Children.Count > 1)
             _headerRow.Children.RemoveAt(_headerRow.Children.Count - 1);
 
+        if (_onBackToToolbar != null)
+        {
+            var backBtn = W11WindowHelper.CreateHeaderIconButton(_cfg, "\uE72B", "Back to toolbar (Backspace)", pal, m, () =>
+            {
+                HideCard();
+                _onBackToToolbar();
+            });
+            backBtn.Margin = new Thickness(0, 0, 5, 0);
+            _modeTabRow.Children.Add(backBtn);
+        }
+
         var tabs = new (ResultCardMode Mode, string Icon, string Label)[]
         {
             (ResultCardMode.Define, "\uE82D", "Define"),
@@ -377,29 +394,7 @@ internal sealed class ResultCardWindow : Window
         }
 
         // Compact close button on top-right
-        var closeBtn = new Border
-        {
-            Width = Math.Max(20, m.MenuRowHeight - 1),
-            Height = Math.Max(20, m.MenuRowHeight - 1),
-            CornerRadius = new CornerRadius(m.BtnCornerRadius),
-            BorderThickness = new Thickness(1),
-            Background = Brushes.Transparent,
-            BorderBrush = Brushes.Transparent,
-            Cursor = Cursors.Hand,
-            VerticalAlignment = VerticalAlignment.Center,
-            Child = new TextBlock
-            {
-                Text = "\uE711",
-                FontFamily = new FontFamily(_cfg.IconFontFamily),
-                FontSize = 9.5,
-                Foreground = new SolidColorBrush(pal.SubText),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            }
-        };
-        closeBtn.MouseEnter += (_, _) => { closeBtn.Background = hoverBg; closeBtn.BorderBrush = hoverBorder; };
-        closeBtn.MouseLeave += (_, _) => { closeBtn.Background = Brushes.Transparent; closeBtn.BorderBrush = Brushes.Transparent; };
-        closeBtn.MouseLeftButtonUp += (_, e) => { e.Handled = true; HideCard(); };
+        var closeBtn = W11WindowHelper.CreateHeaderIconButton(_cfg, "\uE711", "Close (Esc)", pal, m, HideCard);
         Grid.SetColumn(closeBtn, 1);
         _headerRow.Children.Add(closeBtn);
     }
@@ -827,7 +822,7 @@ internal sealed class ResultCardWindow : Window
             });
         }
 
-        _bodyStack.Children.Add(new Border
+        var transCard = new Border
         {
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(9, 7, 9, 7),
@@ -835,8 +830,21 @@ internal sealed class ResultCardWindow : Window
             BorderBrush = new SolidColorBrush(pal.Separator),
             BorderThickness = new Thickness(1),
             Margin = new Thickness(0, 0, 0, 6),
+            Cursor = Cursors.Hand,
+            ToolTip = "Click to copy translation",
             Child = transStack
-        });
+        };
+        transCard.MouseEnter += (_, _) => transCard.BorderBrush = new SolidColorBrush(pal.AccentRim);
+        transCard.MouseLeave += (_, _) => transCard.BorderBrush = new SolidColorBrush(pal.Separator);
+        transCard.MouseLeftButtonUp += (_, e) =>
+        {
+            e.Handled = true;
+            string toCopy = res.TranslatedText;
+            HideCard();
+            _onCopyText?.Invoke(toCopy);
+            _onToast?.Invoke("Translation copied");
+        };
+        _bodyStack.Children.Add(transCard);
 
         foreach (var (pos, terms) in res.Alternatives)
         {
@@ -1056,7 +1064,7 @@ internal sealed class ResultCardWindow : Window
 
         if (isInitialShow || !_isOpen)
         {
-            W11WindowHelper.PositionFlyoutNearPoint(Hwnd, this, _anchorX, _anchorY, preferAbove: false);
+            W11WindowHelper.PositionSecondaryFlyout(Hwnd, this, _primaryRect, _anchorX, _anchorY);
             _isOpen = true;
             W11WindowHelper.AnimateFlyoutIn(this, _card, _cfg.FadeInMs, W11WindowHelper.ShouldAnimate(_cfg));
         }

@@ -28,7 +28,7 @@ internal sealed class QrWindow : Window
             fn?.Invoke();
     }
 
-    public QrWindow(ConfigService cfg, BitmapSource qrBitmap, string sourceText, Action<string> onToast)
+    public QrWindow(ConfigService cfg, BitmapSource qrBitmap, string sourceText, Action<string> onToast, Action onBackToToolbar = null)
     {
         _cfg = cfg;
         var pal = cfg.Palette;
@@ -38,7 +38,24 @@ internal sealed class QrWindow : Window
 
         var stack = new StackPanel { Orientation = Orientation.Vertical };
 
-        var header = new DockPanel { Margin = new Thickness(0, 0, 0, 7) };
+        var header = new Grid { Margin = new Thickness(0, 0, 0, 7) };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        if (onBackToToolbar != null)
+        {
+            var backBtn = W11WindowHelper.CreateHeaderIconButton(cfg, "\uE72B", "Back to toolbar (Backspace)", pal, m, () =>
+            {
+                Dismiss();
+                onBackToToolbar();
+            });
+            backBtn.Margin = new Thickness(0, 0, 5, 0);
+            Grid.SetColumn(backBtn, 0);
+            header.Children.Add(backBtn);
+        }
+
         var title = new TextBlock
         {
             Text = "QR CODE",
@@ -55,7 +72,7 @@ internal sealed class QrWindow : Window
             Background = new SolidColorBrush(pal.PillFill),
             BorderBrush = new SolidColorBrush(pal.PillBorder),
             BorderThickness = new Thickness(1),
-            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(6, 0, 4, 0),
             VerticalAlignment = VerticalAlignment.Center,
             Child = new TextBlock
             {
@@ -65,10 +82,13 @@ internal sealed class QrWindow : Window
                 Foreground = new SolidColorBrush(pal.SubText)
             }
         };
-        DockPanel.SetDock(title, Dock.Left);
-        DockPanel.SetDock(charBadge, Dock.Right);
+        var closeBtn = W11WindowHelper.CreateHeaderIconButton(cfg, "\uE711", "Close (Esc)", pal, m, () => Dismiss());
+        Grid.SetColumn(title, 1);
+        Grid.SetColumn(charBadge, 2);
+        Grid.SetColumn(closeBtn, 3);
         header.Children.Add(title);
         header.Children.Add(charBadge);
+        header.Children.Add(closeBtn);
         stack.Children.Add(header);
 
         var imgFrame = new Border
@@ -152,14 +172,14 @@ internal sealed class QrWindow : Window
         Content = _card;
     }
 
-    public void ShowAt(int screenX, int screenY)
+    public void ShowAt(int screenX, int screenY, Native.RECT primaryRect = default)
     {
         var m = W11WindowHelper.GetFlyoutMetrics(_cfg);
         W11WindowHelper.MakeNonActivatingFlyout(this, _cfg.Palette, smallCorners: m.SmallWindowCorners);
         Show();
         UpdateLayout();
 
-        W11WindowHelper.PositionFlyoutNearPoint(Hwnd, this, screenX, screenY, preferAbove: false);
+        W11WindowHelper.PositionSecondaryFlyout(Hwnd, this, primaryRect, screenX, screenY);
         W11WindowHelper.AnimateFlyoutIn(this, _card, _cfg.FadeInMs, W11WindowHelper.ShouldAnimate(_cfg));
     }
 

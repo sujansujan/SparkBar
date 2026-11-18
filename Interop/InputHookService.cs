@@ -17,6 +17,7 @@ internal sealed unsafe class InputHookService : IDisposable
 
     public Func<string, bool> IsHintKeyBound { get; set; }
     public Func<bool> IsAnyPopupOrQrOrTypingActive { get; set; }
+    public Func<bool> IsSecondaryPopupActive { get; set; }
 
     public event Action<int, int> MouseLeftDown;
     public event Action<int, int> MouseLeftUp;
@@ -24,6 +25,7 @@ internal sealed unsafe class InputHookService : IDisposable
     public event Action MouseWheelOrMiddle;
     public event Action<string> HintKeyPressed;
     public event Action EscapePressed;
+    public event Action BackspacePressed;
     public event Action AnyOtherKeyPressed;
     public event Action ShiftSelectionKeyReleased;
     public event Action ManualTriggerHotkey;      // Ctrl+Alt+P
@@ -131,6 +133,12 @@ internal sealed unsafe class InputHookService : IDisposable
                 if (vk == Native.VK_ESCAPE && (IsAnyPopupOrQrOrTypingActive?.Invoke() ?? false))
                 {
                     EscapePressed?.Invoke();
+                    return new IntPtr(1);
+                }
+
+                if (vk == Native.VK_BACK && !ctrl && !alt && !shift && !win && (IsSecondaryPopupActive?.Invoke() ?? false))
+                {
+                    BackspacePressed?.Invoke();
                     return new IntPtr(1);
                 }
 

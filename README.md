@@ -91,6 +91,7 @@ In **Settings → Search & URLs**, you can add both web search engines and **loc
 | **`Ctrl + Alt + V`** | Open the **Clipboard History** flyout menu |
 | **`Ctrl + Alt + X`** | Instantly exclude or re-enable the currently active application (`.exe`) |
 | **`1` – `9`, `A` – `Z`** *(while bar/menu is open)* | Trigger the corresponding toolbar button or menu item via keyboard |
+| **`Backspace`** *(or `←` header button)* | Return from any secondary popup/card back to the main toolbar in-place |
 | **`Right-Click` on Copy** *(or `Shift + Click`)* | Append selection to clipboard on a new line (`+Copy`) |
 | **`Right-Click` on Define / Web Fallback** | Open the full dictionary entry in your browser |
 | **`Right-Click` on Translate** | Open the in-app **Translate** card with the language selector expanded |

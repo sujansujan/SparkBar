@@ -45,7 +45,9 @@ public sealed class App : Application
     private string _selText = "";
     private bool _popupEditable;
     private bool _popupClipboardMode;
+    private bool _lastReturnClipboardMode;
     private int _popX, _popY;
+    private Native.RECT _lastPopupRect;
     private IntPtr _lastActiveWin;
 
     private int _downX, _downY;
@@ -105,7 +107,8 @@ public sealed class App : Application
             onCopyText: txt => { UiaHelper.SetClipboardUnicodeText(txt); _cfg.RecordClipboardItem(txt); },
             onReplaceText: (win, txt) => ApplyTransform(win, _selText, editable: true, _ => txt),
             onOpenWebUrl: OpenUrl,
-            onToast: msg => ShowToast(msg));
+            onToast: msg => ShowToast(msg),
+            onBackToToolbar: ReturnToMainPopup);
         _resultCardWindow.PreWarm();
         _toastWindow = new ToastWindow(_cfg);
         _toastWindow.PreWarm();
@@ -168,15 +171,17 @@ public sealed class App : Application
         _hooks = new InputHookService
         {
             IsHintKeyBound = IsHintKeyBound,
-            IsAnyPopupOrQrOrTypingActive = () => IsPopupOpen || IsOptionMenuOpen || IsResultCardOpen || _qrWindow != null || (_tray?.IsFlyoutOpen ?? false) || _typingActive
+            IsAnyPopupOrQrOrTypingActive = () => IsPopupOpen || IsOptionMenuOpen || IsResultCardOpen || _qrWindow != null || (_tray?.IsFlyoutOpen ?? false) || _typingActive,
+            IsSecondaryPopupActive = () => IsOptionMenuOpen || IsResultCardOpen || _qrWindow != null
         };
 
         _hooks.MouseLeftDown += (x, y) => Dispatcher.BeginInvoke(DispatcherPriority.Send, () => HandleMouseDown(x, y));
         _hooks.MouseLeftUp += (x, y) => Dispatcher.BeginInvoke(DispatcherPriority.Send, () => HandleMouseUp(x, y));
         _hooks.MouseRightUp += (x, y) => Dispatcher.BeginInvoke(DispatcherPriority.Input, () => HandleMouseRightUp(x, y));
-        _hooks.MouseWheelOrMiddle += () => Dispatcher.BeginInvoke(DispatcherPriority.Input, () => DismissAllMenus());
+        _hooks.MouseWheelOrMiddle += () => Dispatcher.BeginInvoke(DispatcherPriority.Input, HandleMouseWheelOrMiddle);
         _hooks.HintKeyPressed += key => Dispatcher.BeginInvoke(DispatcherPriority.Send, () => HandleHintKey(key));
         _hooks.EscapePressed += () => Dispatcher.BeginInvoke(DispatcherPriority.Send, HandleEscape);
+        _hooks.BackspacePressed += () => Dispatcher.BeginInvoke(DispatcherPriority.Send, ReturnToMainPopup);
         _hooks.AnyOtherKeyPressed += () => Dispatcher.BeginInvoke(DispatcherPriority.Input, () => DismissAllMenus());
         _hooks.ShiftSelectionKeyReleased += () =>
         {
@@ -340,6 +345,19 @@ public sealed class App : Application
         if (IsPopupOpen && rootWin == _popupWindow.Hwnd)
             return;
         if (IsResultCardOpen && rootWin == _resultCardWindow.Hwnd)
+            return;
+        DismissAllMenus();
+    }
+
+    private void HandleMouseWheelOrMiddle()
+    {
+        if (!IsPopupOpen && !IsOptionMenuOpen && !IsResultCardOpen && _qrWindow == null)
+            return;
+        Native.GetCursorPos(out var cur);
+        IntPtr rootWin = Native.GetAncestor(Native.WindowFromPoint(cur), Native.GA_ROOT);
+        if (rootWin != IntPtr.Zero &&
+            ((IsResultCardOpen && rootWin == _resultCardWindow.Hwnd) ||
+             (IsOptionMenuOpen && rootWin == _optionMenuWindow.Hwnd)))
             return;
         DismissAllMenus();
     }
@@ -521,6 +539,7 @@ public sealed class App : Application
         _selText = text;
         _popupEditable = editable;
         _popupClipboardMode = clipboardMode;
+        _lastReturnClipboardMode = clipboardMode;
 
         var actions = BuildActions(text, editable, clipboardMode);
         if (actions.Count == 0)
@@ -530,6 +549,7 @@ public sealed class App : Application
         }
 
         _popupWindow.ShowActionsAt(actions, _popX, _popY, instant);
+        _lastPopupRect = _popupWindow.LastScreenRect;
     }
 
     public void HidePopup(bool instant = false)
@@ -538,9 +558,24 @@ public sealed class App : Application
         _popupClipboardMode = false;
     }
 
-    public void ShowThemedMenu(IReadOnlyList<OptionMenuItem> items, string headerTitle)
+    public void ShowThemedMenu(IReadOnlyList<OptionMenuItem> items, string headerTitle, bool allowBack = true, bool useLastPopupRect = true)
     {
-        _optionMenuWindow?.ShowItemsAt(items, headerTitle, _popX, _popY);
+        _optionMenuWindow?.ShowItemsAt(
+            items,
+            headerTitle,
+            _popX,
+            _popY,
+            useLastPopupRect ? _lastPopupRect : default,
+            (allowBack && !string.IsNullOrWhiteSpace(_selText)) ? ReturnToMainPopup : null);
+    }
+
+    private void ReturnToMainPopup()
+    {
+        HideOptionMenu();
+        HideResultCard();
+        HideQr();
+        if (!string.IsNullOrWhiteSpace(_selText))
+            ShowPopup(_selText, _popupEditable, _lastReturnClipboardMode, instant: true);
     }
 
     public void HideOptionMenu(bool instant = false)
@@ -1039,15 +1074,17 @@ public sealed class App : Application
     private void DoInAppCard(ResultCardMode mode, string text, bool expandLangPicker = false)
     {
         bool editable = _popupEditable;
+        var primaryRect = IsPopupOpen ? _popupWindow.LastScreenRect : _lastPopupRect;
         IntPtr prevWin = _lastActiveWin != IntPtr.Zero ? _lastActiveWin : Native.GetForegroundWindow();
         HidePopup();
         HideOptionMenu();
         HideQr();
-        _resultCardWindow?.ShowCard(mode, text, editable, prevWin, _popX, _popY, expandLangPicker);
+        _resultCardWindow?.ShowCard(mode, text, editable, prevWin, _popX, _popY, expandLangPicker, primaryRect);
     }
 
     private void DoQrCode(string text)
     {
+        var primaryRect = (IsPopupOpen || IsOptionMenuOpen || IsResultCardOpen) ? _lastPopupRect : default;
         DismissAllMenus();
         HideQr();
         if (text.Length > _cfg.QrMaxChars)
@@ -1063,8 +1100,13 @@ public sealed class App : Application
             return;
         }
 
-        _qrWindow = new QrWindow(_cfg, bmp, text, msg => ShowToast(msg));
-        _qrWindow.ShowAt(_popX, _popY);
+        _qrWindow = new QrWindow(
+            _cfg,
+            bmp,
+            text,
+            msg => ShowToast(msg),
+            !string.IsNullOrWhiteSpace(_selText) ? ReturnToMainPopup : null);
+        _qrWindow.ShowAt(_popX, _popY, primaryRect);
     }
 
     private void RunSearchOrAction(string text, SearchEngineEntry item)
@@ -1250,7 +1292,11 @@ public sealed class App : Application
 
     private void ShowClipboardHistoryMenu()
     {
+        bool fromPopup = IsPopupOpen;
+        var savedRect = fromPopup ? _popupWindow.LastScreenRect : default;
         DismissAllMenus();
+        _lastPopupRect = fromPopup ? savedRect : default;
+
         string curClip = UiaHelper.GetClipboardUnicodeText();
         if (!string.IsNullOrWhiteSpace(curClip))
             _cfg.RecordClipboardItem(curClip);
@@ -1319,7 +1365,7 @@ public sealed class App : Application
             });
         }
 
-        ShowThemedMenu(items, "CLIPBOARD HISTORY");
+        ShowThemedMenu(items, "CLIPBOARD HISTORY", allowBack: hist.Count > 0 && fromPopup, useLastPopupRect: fromPopup);
     }
 
     private async void ApplyTransform(IntPtr targetWin, string text, bool editable, Func<string, string> transform)
