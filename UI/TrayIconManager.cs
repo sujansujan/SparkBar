@@ -256,7 +256,7 @@ internal sealed class TrayFlyoutWindow : Window
 
         W11WindowHelper.ConfigureDwmFlyoutChrome(this);
 
-        var outerStack = new StackPanel { Orientation = Orientation.Vertical, Width = Math.Max(220, m.MenuSingleMaxWidth + (isTui ? 14 : 0)) };
+        var outerStack = new StackPanel { Orientation = Orientation.Vertical, Width = Math.Max(220, m.MenuSingleMaxWidth + (isTui ? 8 : 0)) };
         var stack = new StackPanel { Orientation = Orientation.Vertical };
         var hoverBg = new LinearGradientBrush(pal.HoverTop, pal.HoverBottom, 90);
         var hoverBorder = new SolidColorBrush(isTui ? W11WindowHelper.GetTuiHighlightColor(pal) : pal.HoverBorder.Value);
@@ -406,7 +406,8 @@ internal sealed class TrayFlyoutWindow : Window
 
         if (isTui)
         {
-            outerStack.Children.Add(W11WindowHelper.WrapWithTuiSideRails(stack, pal, horizontalPad: 3));
+            stack.Margin = new Thickness(4, 2, 4, 2);
+            outerStack.Children.Add(stack);
             outerStack.Children.Add(W11WindowHelper.CreateTuiFooterBar("Tray Menu", pal, m, out _));
         }
         else
@@ -414,8 +415,8 @@ internal sealed class TrayFlyoutWindow : Window
             outerStack.Children.Add(stack);
         }
 
-        double padX = Math.Round(m.CardPadding.Left * (isTui ? 1.2 : 1.5));
-        double padY = Math.Round(m.CardPadding.Top * (isTui ? 1.2 : 1.5));
+        double padX = Math.Round(m.CardPadding.Left * 1.5);
+        double padY = Math.Round(m.CardPadding.Top * 1.5);
         var topHighlight = W11WindowHelper.CreateTopHighlight(pal, topNegativeMargin: -padY);
         topHighlight.Visibility = isTui ? Visibility.Collapsed : Visibility.Visible;
         var inner = new Grid();
@@ -424,12 +425,11 @@ internal sealed class TrayFlyoutWindow : Window
 
         _card = new Border
         {
-            Padding = new Thickness(padX, padY, padX, padY),
-            Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90),
             SnapsToDevicePixels = true,
             UseLayoutRounding = true,
             Child = inner
         };
+        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, new Thickness(padX, padY, padX, padY));
 
         Content = _card;
     }

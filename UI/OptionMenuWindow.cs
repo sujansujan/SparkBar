@@ -103,10 +103,9 @@ internal sealed class OptionMenuWindow : Window
             W11WindowHelper.ApplyDwmFlyoutAttributes(Hwnd, pal, smallCorners: m.SmallWindowCorners, neonTui: isTui);
         }
 
-        double padX = Math.Round(m.CardPadding.Left * (isTui ? 1.2 : 1.5));
-        double padY = Math.Round(m.CardPadding.Top * (isTui ? 1.2 : 1.5));
-        _card.Padding = new Thickness(padX, padY, padX, padY);
-        _card.Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90);
+        double padX = Math.Round(m.CardPadding.Left * 1.5);
+        double padY = Math.Round(m.CardPadding.Top * 1.5);
+        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, new Thickness(padX, padY, padX, padY));
         _topHighlight.Visibility = isTui ? Visibility.Collapsed : Visibility.Visible;
         _topHighlight.Background = new SolidColorBrush(pal.IsLight ? Colors.White : Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
         _topHighlight.Margin = new Thickness(0, -padY, 0, 0);
@@ -124,11 +123,11 @@ internal sealed class OptionMenuWindow : Window
         var hoverBorder = new SolidColorBrush(isTui ? W11WindowHelper.GetTuiHighlightColor(pal) : pal.HoverBorder.Value);
 
         bool isClipboardMenu = string.Equals(headerTitle, "CLIPBOARD HISTORY", StringComparison.OrdinalIgnoreCase);
-        bool useTwoColGrid = !isClipboardMenu && items.Count > 6;
-        double railPad = isTui ? 14 : 0;
+        bool useTwoColGrid = !isClipboardMenu && (_cfg.TwoLayerPopup ? items.Count >= 2 : items.Count > 6);
+        double tuiBodyPad = isTui ? 8 : 0;
 
-        _stack.MinWidth = (useTwoColGrid ? (m.MenuTwoColItemWidth * 2) + 4 : m.MenuSingleMinWidth) + railPad;
-        _stack.MaxWidth = (useTwoColGrid ? (m.MenuTwoColItemWidth * 2) + 8 : (isClipboardMenu ? m.CardWidth : m.MenuSingleMaxWidth)) + railPad;
+        _stack.MinWidth = (useTwoColGrid ? (m.MenuTwoColItemWidth * 2) + 4 : m.MenuSingleMinWidth) + tuiBodyPad;
+        _stack.MaxWidth = (useTwoColGrid ? (m.MenuTwoColItemWidth * 2) + 8 : (isClipboardMenu ? m.CardWidth : m.MenuSingleMaxWidth)) + tuiBodyPad;
 
         Border backBtn = null;
         if (onBack != null)
@@ -317,6 +316,7 @@ internal sealed class OptionMenuWindow : Window
         if (useTwoColGrid)
         {
             int startIdx = 0;
+            int endExclusive = items.Count;
             if (items[0].Accent)
             {
                 string h0 = SmartParser.HintForIndex(1);
@@ -335,16 +335,20 @@ internal sealed class OptionMenuWindow : Window
                 startIdx = 1;
             }
 
+            bool hasFooterAccent = items.Count - startIdx >= 2 && items[items.Count - 1].Accent;
+            if (hasFooterAccent)
+                endExclusive = items.Count - 1;
+
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(m.MenuTwoColItemWidth) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(m.MenuTwoColItemWidth) });
 
-            int remaining = items.Count - startIdx;
+            int remaining = endExclusive - startIdx;
             int rows = (remaining + 1) / 2;
             for (int r = 0; r < rows; r++)
                 grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-            for (int i = startIdx; i < items.Count; i++)
+            for (int i = startIdx; i < endExclusive; i++)
             {
                 var item = items[i];
                 string hint = SmartParser.HintForIndex(i + 1);
@@ -363,6 +367,24 @@ internal sealed class OptionMenuWindow : Window
                 grid.Children.Add(rb);
             }
             bodyHost.Children.Add(grid);
+
+            if (hasFooterAccent)
+            {
+                var div = new Border
+                {
+                    Height = 1,
+                    Background = sepBrush,
+                    SnapsToDevicePixels = true,
+                    Margin = new Thickness(4, 2, 4, 2)
+                };
+                RenderOptions.SetEdgeMode(div, EdgeMode.Aliased);
+                bodyHost.Children.Add(div);
+
+                int lastIdx = items.Count - 1;
+                string hLast = SmartParser.HintForIndex(lastIdx + 1);
+                if (items[lastIdx].OnClick != null) _hintMap[hLast] = items[lastIdx].OnClick;
+                bodyHost.Children.Add(BuildRowBorder(items[lastIdx], hLast, isTwoCol: false));
+            }
         }
         else
         {
@@ -393,7 +415,8 @@ internal sealed class OptionMenuWindow : Window
 
         if (isTui)
         {
-            _stack.Children.Add(W11WindowHelper.WrapWithTuiSideRails(bodyHost, pal, horizontalPad: 3));
+            bodyHost.Margin = new Thickness(4, 2, 4, 2);
+            _stack.Children.Add(bodyHost);
             _stack.Children.Add(W11WindowHelper.CreateTuiFooterBar(onBack != null ? "Esc · Backspace: ←" : "Esc: close", pal, m, out _));
         }
         else

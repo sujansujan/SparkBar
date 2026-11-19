@@ -82,7 +82,7 @@ internal static unsafe class Native
     public const uint INPUT_KEYBOARD = 1;
     public const uint KEYEVENTF_KEYUP = 0x2, KEYEVENTF_UNICODE = 0x4;
     public const uint LLKHF_INJECTED = 0x10;
-    public const uint CF_UNICODETEXT = 13, CF_HDROP = 15;
+    public const uint CF_BITMAP = 2, CF_DIB = 8, CF_UNICODETEXT = 13, CF_HDROP = 15;
     public const uint GMEM_MOVEABLE = 0x2;
     public const uint EVENT_SYSTEM_FOREGROUND = 0x3, WINEVENT_OUTOFCONTEXT = 0;
     public const uint NIM_ADD = 0, NIM_MODIFY = 1, NIM_DELETE = 2;
@@ -162,8 +162,16 @@ internal static unsafe class Native
     [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
     [DllImport("dwmapi.dll")] public static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref MARGINS margins);
 
+    [StructLayout(LayoutKind.Sequential, Size = 24)]
+    public struct HSTRING_HEADER { public IntPtr P1, P2, P3; }
+
     [DllImport("ole32.dll")] public static extern int CoInitializeEx(IntPtr reserved, uint coInit);
     [DllImport("ole32.dll")] public static extern int CoCreateInstance(in Guid clsid, IntPtr outer, uint ctx, in Guid iid, out IntPtr ppv);
+    [DllImport("combase.dll", PreserveSig = true)] public static extern int RoInitialize(int initType);
+    [DllImport("combase.dll", PreserveSig = true)] public static extern int WindowsCreateStringReference(char* sourceString, uint length, out HSTRING_HEADER header, out IntPtr hstring);
+    [DllImport("combase.dll", PreserveSig = true)] public static extern int RoGetActivationFactory(IntPtr activatableClassId, in Guid iid, out IntPtr factory);
+    [DllImport("combase.dll", CharSet = CharSet.Unicode, PreserveSig = true)] public static extern IntPtr WindowsGetStringRawBuffer(IntPtr hstring, out uint length);
+    [DllImport("combase.dll", PreserveSig = true)] public static extern int WindowsDeleteString(IntPtr hstring);
     [DllImport("oleaut32.dll")] public static extern int VariantClear(void* v);
     [DllImport("oleaut32.dll")] public static extern void SysFreeString(IntPtr bstr);
     [DllImport("oleaut32.dll")] public static extern int SafeArrayGetLBound(IntPtr psa, uint dim, out int lb);

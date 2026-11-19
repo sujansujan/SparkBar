@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace SparkBar;
 
@@ -16,6 +17,7 @@ internal static unsafe class UiaHelper
     private static readonly Guid IID_IUIAutomation   = new("30CBE57D-D9D0-452A-AB13-7AC5AC4825EE");
 
     [ThreadStatic] private static IntPtr _tlsUia;
+    [ThreadStatic] private static IntPtr _tlsWalker;
     [ThreadStatic] private static bool _tlsInitTried;
 
     private static readonly uint CfExcludeMonitor = Native.RegisterClipboardFormat("ExcludeClipboardContentFromMonitorProcessing");
@@ -56,6 +58,37 @@ internal static unsafe class UiaHelper
         return _tlsUia;
     }
 
+    private static IntPtr GetControlWalker()
+    {
+        if (_tlsWalker != IntPtr.Zero) return _tlsWalker;
+        IntPtr uia = GetUia();
+        if (uia == IntPtr.Zero) return IntPtr.Zero;
+        try
+        {
+            void** vtbl = *(void***)uia;
+            var fn = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr*, int>)vtbl[14];
+            IntPtr w = IntPtr.Zero;
+            if (fn(uia, &w) == 0 && w != IntPtr.Zero)
+                _tlsWalker = w;
+        }
+        catch { }
+        return _tlsWalker;
+    }
+
+    private static IntPtr GetElementFromPoint(int x, int y)
+    {
+        IntPtr uia = GetUia();
+        if (uia == IntPtr.Zero) return IntPtr.Zero;
+        try
+        {
+            void** vtbl = *(void***)uia;
+            var fn = (delegate* unmanaged[Stdcall]<IntPtr, Native.POINT, IntPtr*, int>)vtbl[7];
+            IntPtr el = IntPtr.Zero;
+            return fn(uia, new Native.POINT(x, y), &el) == 0 ? el : IntPtr.Zero;
+        }
+        catch { return IntPtr.Zero; }
+    }
+
     private static IntPtr GetFocusedElement()
     {
         IntPtr uia = GetUia();
@@ -89,42 +122,127 @@ internal static unsafe class UiaHelper
         return null;
     }
 
-    private static IntPtr GetSelectionRangeArray(out bool supported)
+    private static bool TryGetNonEmptySelection(IntPtr el, out IntPtr rangeArr, out bool hasTextPattern)
+    {
+        rangeArr = IntPtr.Zero;
+        hasTextPattern = false;
+        if (el == IntPtr.Zero) return false;
+
+        if (GetProperty(el, 30019 /*IsPassword*/) is int isPwd && isPwd == 1)
+        {
+            hasTextPattern = true;
+            return false;
+        }
+
+        void** elVtbl = *(void***)el;
+        var getPat = (delegate* unmanaged[Stdcall]<IntPtr, int, IntPtr*, int>)elVtbl[16];
+        foreach (int patternId in new[] { 10014 /*UIA_TextPatternId*/, 10024 /*UIA_TextPattern2Id*/ })
+        {
+            IntPtr pat = IntPtr.Zero;
+            if (getPat(el, patternId, &pat) == 0 && pat != IntPtr.Zero)
+            {
+                hasTextPattern = true;
+                try
+                {
+                    void** patVtbl = *(void***)pat;
+                    var getSel = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr*, int>)patVtbl[5];
+                    IntPtr arr = IntPtr.Zero;
+                    if (getSel(pat, &arr) == 0 && arr != IntPtr.Zero)
+                    {
+                        void** arrVtbl = *(void***)arr;
+                        var getLen = (delegate* unmanaged[Stdcall]<IntPtr, int*, int>)arrVtbl[3];
+                        int count = 0;
+                        if (getLen(arr, &count) == 0 && count > 0)
+                        {
+                            rangeArr = arr;
+                            return true;
+                        }
+                        Marshal.Release(arr);
+                    }
+                }
+                finally { Marshal.Release(pat); }
+            }
+        }
+        return false;
+    }
+
+    private static IntPtr TryGetSelectionFromElementOrAncestors(IntPtr startEl, out bool supported)
     {
         supported = false;
-        IntPtr el = GetFocusedElement();
-        if (el == IntPtr.Zero) return IntPtr.Zero;
-        IntPtr pat = IntPtr.Zero;
-        IntPtr arr = IntPtr.Zero;
-        try
+        if (startEl == IntPtr.Zero) return IntPtr.Zero;
+
+        IntPtr walker = GetControlWalker();
+        IntPtr cur = startEl;
+        Marshal.AddRef(cur);
+
+        for (int depth = 0; depth < 10 && cur != IntPtr.Zero; depth++)
         {
-            if (GetProperty(el, 30019 /*IsPassword*/) is int isPwd && isPwd == 1)
+            if (TryGetNonEmptySelection(cur, out IntPtr arr, out bool hasPat))
             {
                 supported = true;
-                return IntPtr.Zero;
+                Marshal.Release(cur);
+                return arr;
             }
-            void** elVtbl = *(void***)el;
-            var getPat = (delegate* unmanaged[Stdcall]<IntPtr, int, IntPtr*, int>)elVtbl[16];
-            if (getPat(el, 10014 /*UIA_TextPatternId*/, &pat) == 0 && pat != IntPtr.Zero)
+            if (hasPat) supported = true;
+
+            if (walker == IntPtr.Zero) break;
+            IntPtr next = IntPtr.Zero;
+            try
             {
-                void** patVtbl = *(void***)pat;
-                var getSel = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr*, int>)patVtbl[5];
-                if (getSel(pat, &arr) == 0)
-                    supported = true;
+                void** wVtbl = *(void***)walker;
+                var getParent = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr, IntPtr*, int>)wVtbl[3];
+                if (getParent(walker, cur, &next) != 0)
+                    next = IntPtr.Zero;
+            }
+            catch { next = IntPtr.Zero; }
+            Marshal.Release(cur);
+            cur = next;
+        }
+        if (cur != IntPtr.Zero) Marshal.Release(cur);
+        return IntPtr.Zero;
+    }
+
+    private static IntPtr GetSelectionRangeArray(out bool supported, int? verifyMouseX = null, int? verifyMouseY = null)
+    {
+        supported = false;
+        bool ptSupported = false;
+        if (verifyMouseX.HasValue && verifyMouseY.HasValue)
+        {
+            IntPtr ptEl = GetElementFromPoint(verifyMouseX.Value, verifyMouseY.Value);
+            if (ptEl != IntPtr.Zero)
+            {
+                try
+                {
+                    IntPtr ptArr = TryGetSelectionFromElementOrAncestors(ptEl, out ptSupported);
+                    if (ptArr != IntPtr.Zero)
+                    {
+                        supported = true;
+                        return ptArr;
+                    }
+                }
+                finally { Marshal.Release(ptEl); }
             }
         }
-        catch { }
-        finally
+
+        IntPtr focusEl = GetFocusedElement();
+        if (focusEl != IntPtr.Zero)
         {
-            if (pat != IntPtr.Zero) Marshal.Release(pat);
-            Marshal.Release(el);
+            try
+            {
+                IntPtr focusArr = TryGetSelectionFromElementOrAncestors(focusEl, out bool focusSupported);
+                supported = ptSupported || focusSupported;
+                return focusArr;
+            }
+            finally { Marshal.Release(focusEl); }
         }
-        return arr;
+
+        supported = ptSupported;
+        return IntPtr.Zero;
     }
 
     public static string GetUiaSelectionText(int maxChars, out bool supported, int? verifyMouseX = null, int? verifyMouseY = null)
     {
-        IntPtr arr = GetSelectionRangeArray(out supported);
+        IntPtr arr = GetSelectionRangeArray(out supported, verifyMouseX, verifyMouseY);
         if (arr == IntPtr.Zero) return "";
         var sb = new StringBuilder();
         bool nearMouse = !verifyMouseX.HasValue || !verifyMouseY.HasValue;
@@ -388,7 +506,13 @@ internal static unsafe class UiaHelper
 
         // Fast 1-call text backup (never call EnumClipboardFormats which triggers slow delayed RTF/HTML rendering!)
         bool hadText = Native.IsClipboardFormatAvailable(Native.CF_UNICODETEXT);
+        bool hadNonText = Native.IsClipboardFormatAvailable(Native.CF_HDROP) ||
+                          Native.IsClipboardFormatAvailable(Native.CF_BITMAP) ||
+                          Native.IsClipboardFormatAvailable(Native.CF_DIB);
         string oldText = hadText ? GetClipboardUnicodeText() : null;
+
+        var historyBaseline = WinRtClipboardHistoryCleaner.SnapshotHistoryIds();
+        long probeStartUtcFt = DateTime.UtcNow.ToFileTimeUtc() - TimeSpan.FromSeconds(2).Ticks;
 
         uint seqBefore = Native.GetClipboardSequenceNumber();
         SendCtrlKey('C');
@@ -414,8 +538,11 @@ internal static unsafe class UiaHelper
 
         if (hadText && oldText != null)
             SetClipboardUnicodeText(oldText, excludeFromHistory: true);
-        else if (!hadText && !isFiles)
+        else if (!hadText && !isFiles && !hadNonText)
             EmptyClipboardSafe();
+
+        if (historyBaseline != null)
+            WinRtClipboardHistoryCleaner.PurgeNewHistoryItemsAsync(historyBaseline, probeStartUtcFt);
 
         if (isFiles || string.IsNullOrEmpty(result)) return "";
 
@@ -424,6 +551,201 @@ internal static unsafe class UiaHelper
             return "";
 
         return result;
+    }
+
+    /// <summary>
+    /// Removes transient Ctrl+C probe entries from Windows 11 Clipboard History (Win+V) via combase/WinRT
+    /// without external WinRT NuGet dependencies or blocking selection response.
+    /// </summary>
+    internal static class WinRtClipboardHistoryCleaner
+    {
+        private static readonly Guid IID_IClipboardStatics2 = new("D2AC1B6A-D29F-554B-B303-F0452345FE02");
+        private static readonly Guid IID_IAsyncInfo         = new("00000036-0000-0000-C000-000000000046");
+
+        private static IntPtr GetClipboardStatics2()
+        {
+            try
+            {
+                Native.RoInitialize(1 /*RO_INIT_MULTITHREADED*/);
+                const string cls = "Windows.ApplicationModel.DataTransfer.Clipboard";
+                fixed (char* pCls = cls)
+                {
+                    if (Native.WindowsCreateStringReference(pCls, (uint)cls.Length, out var hdr, out IntPtr hCls) == 0 && hCls != IntPtr.Zero)
+                    {
+                        if (Native.RoGetActivationFactory(hCls, in IID_IClipboardStatics2, out IntPtr fac) == 0)
+                            return fac;
+                    }
+                }
+            }
+            catch { }
+            return IntPtr.Zero;
+        }
+
+        public static bool IsHistoryEnabled()
+        {
+            IntPtr stat = GetClipboardStatics2();
+            if (stat == IntPtr.Zero) return false;
+            try
+            {
+                void** vtbl = *(void***)stat;
+                var fn = (delegate* unmanaged[Stdcall]<IntPtr, byte*, int>)vtbl[10];
+                byte enabled = 0;
+                return fn(stat, &enabled) == 0 && enabled != 0;
+            }
+            catch { return false; }
+            finally { Marshal.Release(stat); }
+        }
+
+        public static HashSet<string> SnapshotHistoryIds()
+        {
+            if (Native.OsBuild < 17763) return null;
+            IntPtr stat = GetClipboardStatics2();
+            if (stat == IntPtr.Zero) return null;
+            try
+            {
+                void** vtbl = *(void***)stat;
+                var isEn = (delegate* unmanaged[Stdcall]<IntPtr, byte*, int>)vtbl[10];
+                byte enabled = 0;
+                if (isEn(stat, &enabled) != 0 || enabled == 0) return null;
+
+                var set = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var entry in FetchHistoryItems(stat, maxItems: 25))
+                {
+                    if (!string.IsNullOrEmpty(entry.Id)) set.Add(entry.Id);
+                    Marshal.Release(entry.ItemPtr);
+                }
+                return set;
+            }
+            catch { return null; }
+            finally { Marshal.Release(stat); }
+        }
+
+        public static void PurgeNewHistoryItemsAsync(HashSet<string> baselineIds, long minUtcFileTime)
+        {
+            if (baselineIds == null) return;
+            _ = Task.Delay(65).ContinueWith(_ =>
+            {
+                try { DeleteNewItemsPass(baselineIds, minUtcFileTime); } catch { }
+                _ = Task.Delay(210).ContinueWith(_2 =>
+                {
+                    try { DeleteNewItemsPass(baselineIds, minUtcFileTime); } catch { }
+                }, TaskScheduler.Default);
+            }, TaskScheduler.Default);
+        }
+
+        private static void DeleteNewItemsPass(HashSet<string> baselineIds, long minUtcFileTime)
+        {
+            IntPtr stat = GetClipboardStatics2();
+            if (stat == IntPtr.Zero) return;
+            try
+            {
+                void** vtbl = *(void***)stat;
+                var delFn = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr, byte*, int>)vtbl[8];
+                foreach (var entry in FetchHistoryItems(stat, maxItems: 12))
+                {
+                    try
+                    {
+                        if (!string.IsNullOrEmpty(entry.Id) && !baselineIds.Contains(entry.Id) && entry.TimestampFileTime >= minUtcFileTime)
+                        {
+                            byte removed = 0;
+                            delFn(stat, entry.ItemPtr, &removed);
+                        }
+                    }
+                    finally { Marshal.Release(entry.ItemPtr); }
+                }
+            }
+            catch { }
+            finally { Marshal.Release(stat); }
+        }
+
+        private static List<(IntPtr ItemPtr, string Id, long TimestampFileTime)> FetchHistoryItems(IntPtr stat, int maxItems)
+        {
+            var list = new List<(IntPtr, string, long)>();
+            void** vtbl = *(void***)stat;
+            var getHistAsync = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr*, int>)vtbl[6];
+            IntPtr asyncOp = IntPtr.Zero;
+            if (getHistAsync(stat, &asyncOp) != 0 || asyncOp == IntPtr.Zero) return list;
+
+            try
+            {
+                IntPtr asyncInfo = IntPtr.Zero;
+                Guid iidInfo = IID_IAsyncInfo;
+                if (Marshal.QueryInterface(asyncOp, in iidInfo, out asyncInfo) != 0 || asyncInfo == IntPtr.Zero)
+                    return list;
+
+                int status = 0;
+                try
+                {
+                    void** infoVtbl = *(void***)asyncInfo;
+                    var getStatus = (delegate* unmanaged[Stdcall]<IntPtr, int*, int>)infoVtbl[7];
+                    for (int i = 0; i < 40; i++)
+                    {
+                        if (getStatus(asyncInfo, &status) != 0 || status != 0) break;
+                        Thread.Sleep(2);
+                    }
+                }
+                finally { Marshal.Release(asyncInfo); }
+
+                if (status != 1 /*Completed*/) return list;
+
+                void** opVtbl = *(void***)asyncOp;
+                var getResults = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr*, int>)opVtbl[8];
+                IntPtr res = IntPtr.Zero;
+                if (getResults(asyncOp, &res) != 0 || res == IntPtr.Zero) return list;
+
+                try
+                {
+                    void** resVtbl = *(void***)res;
+                    var getResStatus = (delegate* unmanaged[Stdcall]<IntPtr, int*, int>)resVtbl[6];
+                    int rStat = -1;
+                    if (getResStatus(res, &rStat) != 0 || rStat != 0 /*Success*/) return list;
+
+                    var getItems = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr*, int>)resVtbl[7];
+                    IntPtr vec = IntPtr.Zero;
+                    if (getItems(res, &vec) != 0 || vec == IntPtr.Zero) return list;
+
+                    try
+                    {
+                        void** vecVtbl = *(void***)vec;
+                        var getAt   = (delegate* unmanaged[Stdcall]<IntPtr, uint, IntPtr*, int>)vecVtbl[6];
+                        var getSize = (delegate* unmanaged[Stdcall]<IntPtr, uint*, int>)vecVtbl[7];
+                        uint count = 0;
+                        if (getSize(vec, &count) != 0 || count == 0) return list;
+
+                        uint take = Math.Min(count, (uint)maxItems);
+                        for (uint idx = 0; idx < take; idx++)
+                        {
+                            IntPtr item = IntPtr.Zero;
+                            if (getAt(vec, idx, &item) == 0 && item != IntPtr.Zero)
+                            {
+                                void** itemVtbl = *(void***)item;
+                                var getId = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr*, int>)itemVtbl[6];
+                                var getTs = (delegate* unmanaged[Stdcall]<IntPtr, long*, int>)itemVtbl[7];
+
+                                string idStr = "";
+                                IntPtr hId = IntPtr.Zero;
+                                if (getId(item, &hId) == 0 && hId != IntPtr.Zero)
+                                {
+                                    IntPtr buf = Native.WindowsGetStringRawBuffer(hId, out uint len);
+                                    if (buf != IntPtr.Zero && len > 0)
+                                        idStr = Marshal.PtrToStringUni(buf, (int)len) ?? "";
+                                    Native.WindowsDeleteString(hId);
+                                }
+
+                                long ts = 0;
+                                getTs(item, &ts);
+                                list.Add((item, idStr, ts));
+                            }
+                        }
+                    }
+                    finally { Marshal.Release(vec); }
+                }
+                finally { Marshal.Release(res); }
+            }
+            finally { Marshal.Release(asyncOp); }
+
+            return list;
+        }
     }
 
     public static string GetClipboardUnicodeText()

@@ -179,10 +179,14 @@ internal sealed class QrWindow : Window
 
         if (isTui)
         {
-            var bodyContent = new StackPanel { Orientation = Orientation.Vertical };
+            var bodyContent = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                Margin = new Thickness(8, 4, 8, 4)
+            };
             bodyContent.Children.Add(imgFrame);
             bodyContent.Children.Add(btnRow);
-            stack.Children.Add(W11WindowHelper.WrapWithTuiSideRails(bodyContent, pal, horizontalPad: 6));
+            stack.Children.Add(bodyContent);
             stack.Children.Add(W11WindowHelper.CreateTuiFooterBar(onBackToToolbar != null ? "Esc · Backspace: ←" : "Esc: close", pal, m, out _));
         }
         else
@@ -191,8 +195,8 @@ internal sealed class QrWindow : Window
             stack.Children.Add(btnRow);
         }
 
-        double padX = Math.Round(m.CardPadding.Left * (isTui ? 1.5 : 3.0));
-        double padY = Math.Round(m.CardPadding.Top * (isTui ? 1.5 : 2.5));
+        double padX = Math.Round(m.CardPadding.Left * 3.0);
+        double padY = Math.Round(m.CardPadding.Top * 2.5);
         var topHighlight = W11WindowHelper.CreateTopHighlight(pal, topNegativeMargin: -padY);
         topHighlight.Visibility = isTui ? Visibility.Collapsed : Visibility.Visible;
 
@@ -202,12 +206,11 @@ internal sealed class QrWindow : Window
 
         _card = new Border
         {
-            Padding = new Thickness(padX, padY, padX, padY),
-            Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90),
             SnapsToDevicePixels = true,
             UseLayoutRounding = true,
             Child = inner
         };
+        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, new Thickness(padX, padY, padX, padY));
 
         Content = _card;
     }

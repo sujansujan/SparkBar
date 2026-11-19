@@ -233,14 +233,13 @@ internal sealed class ResultCardWindow : Window
             W11WindowHelper.ApplyDwmFlyoutAttributes(Hwnd, pal, smallCorners: m.SmallWindowCorners, neonTui: isTui);
         }
 
-        _card.Width = m.CardWidth + (isTui ? 10 : 0);
-        _card.Padding = isTui
-            ? new Thickness(m.CardPadding.Left * 1.5, m.CardPadding.Top * 1.5, m.CardPadding.Right * 1.5, m.CardPadding.Bottom * 1.5)
-            : new Thickness(m.CardPadding.Left * 3.0, m.CardPadding.Top * 2.5, m.CardPadding.Right * 3.0, m.CardPadding.Bottom * 2.5);
-        _card.Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90);
+        _card.Width = m.CardWidth + (isTui ? 6 : 0);
+        double classicPadX = Math.Round(m.CardPadding.Left * 3.0);
+        double classicPadY = Math.Round(m.CardPadding.Top * 2.5);
+        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, new Thickness(classicPadX, classicPadY, classicPadX, classicPadY));
         _topHighlight.Visibility = isTui ? Visibility.Collapsed : Visibility.Visible;
         _topHighlight.Background = new SolidColorBrush(pal.IsLight ? Colors.White : Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
-        _topHighlight.Margin = new Thickness(0, -_card.Padding.Top, 0, 0);
+        _topHighlight.Margin = new Thickness(0, -classicPadY, 0, 0);
         _scroll.MaxHeight = m.CardBodyMaxHeight;
         _footerSep.Background = new SolidColorBrush(isTui ? W11WindowHelper.GetTuiHighlightColor(pal) : pal.Separator);
 
@@ -253,7 +252,8 @@ internal sealed class ResultCardWindow : Window
         {
             _tuiTopHost.Visibility = Visibility.Visible;
             _tuiBottomHost.Visibility = Visibility.Visible;
-            _bodyFrameHost.Children.Add(W11WindowHelper.WrapWithTuiSideRails(_contentStack, pal, horizontalPad: 6));
+            _contentStack.Margin = new Thickness(7, 4, 7, 4);
+            _bodyFrameHost.Children.Add(_contentStack);
             _tuiBottomHost.Children.Add(W11WindowHelper.CreateTuiFooterBar(
                 _onBackToToolbar != null ? "1..3: run · Backspace: ←" : "1..3: run · Esc: close",
                 pal, m, out _));
@@ -262,6 +262,7 @@ internal sealed class ResultCardWindow : Window
         {
             _tuiTopHost.Visibility = Visibility.Collapsed;
             _tuiBottomHost.Visibility = Visibility.Collapsed;
+            _contentStack.Margin = new Thickness(0);
             _bodyFrameHost.Children.Add(_contentStack);
         }
 

@@ -122,8 +122,9 @@ internal sealed class ToastWindow : Window
             badgeBg = pal.IsLight ? Color.FromRgb(0xDC, 0xFC, 0xE7) : Color.FromRgb(0x13, 0x2D, 0x24);
         }
 
-        _card.Padding = m.ToastPadding;
-        _card.Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90);
+        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, m.ToastPadding);
+        if (_card.Child is FrameworkElement innerRow)
+            innerRow.Margin = isTui ? m.ToastPadding : new Thickness(0);
         _badge.Width = m.ToastBadgeSize;
         _badge.Height = m.ToastBadgeSize;
         _badge.CornerRadius = new CornerRadius(m.ToastBadgeSize / 2.0);

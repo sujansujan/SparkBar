@@ -95,7 +95,7 @@ public sealed class ConfigService
 
     private static readonly HashSet<string> TextDefaultActions = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Append to clipboard", "Calculate & convert", "Save URL as action", "Word count", "Change case / clean up"
+        "Calculate & convert", "Save URL as action", "Word count", "Change case / clean up"
     };
 
     public static readonly string[] DefaultExcludedExes =

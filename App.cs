@@ -670,7 +670,8 @@ public sealed class App : Application
             {
                 Tip = "Append to clipboard",
                 ShortLabel = "+Copy",
-                Glyph = "\uE710",
+                Glyph = "\uE8C8",
+                BadgeGlyph = "+",
                 IsIconGlyph = true,
                 Group = 1,
                 RelevancePriority = 2,
