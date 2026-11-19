@@ -25,8 +25,11 @@ public sealed class OptionMenuItem
 internal sealed class OptionMenuWindow : Window
 {
     private readonly ConfigService _cfg;
+    private readonly Grid _frameRoot;
     private readonly Border _card;
     private readonly Border _topHighlight;
+    private readonly Grid _tuiTopHost;
+    private readonly Grid _tuiBottomHost;
     private readonly StackPanel _stack;
     private readonly Dictionary<string, Action> _hintMap = new(StringComparer.OrdinalIgnoreCase);
     private bool _isOpen;
@@ -48,7 +51,7 @@ internal sealed class OptionMenuWindow : Window
         _cfg = cfg;
         var pal = cfg.Palette;
 
-        W11WindowHelper.ConfigureDwmFlyoutChrome(this);
+        W11WindowHelper.ConfigureDwmFlyoutChrome(this, neonTui: cfg.IsNeonTui);
 
         _stack = new StackPanel
         {
@@ -70,7 +73,32 @@ internal sealed class OptionMenuWindow : Window
             Child = inner
         };
 
-        Content = _card;
+        _tuiTopHost = new Grid
+        {
+            Background = null,
+            VerticalAlignment = VerticalAlignment.Top,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Visibility = Visibility.Collapsed
+        };
+        _tuiBottomHost = new Grid
+        {
+            Background = null,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Visibility = Visibility.Collapsed
+        };
+
+        _frameRoot = new Grid
+        {
+            Background = null,
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true
+        };
+        _frameRoot.Children.Add(_card);
+        _frameRoot.Children.Add(_tuiTopHost);
+        _frameRoot.Children.Add(_tuiBottomHost);
+
+        Content = _frameRoot;
     }
 
     public void PreWarm()
@@ -96,7 +124,7 @@ internal sealed class OptionMenuWindow : Window
         var m = W11WindowHelper.GetFlyoutMetrics(_cfg);
         bool isTui = _cfg.IsNeonTui;
 
-        Background = new SolidColorBrush(pal.BgBottom);
+        Background = isTui ? Brushes.Transparent : new SolidColorBrush(pal.BgBottom);
         if (Hwnd != IntPtr.Zero)
         {
             Native.RemoveExStyle(Hwnd, Native.WS_EX_TRANSPARENT);
@@ -105,12 +133,14 @@ internal sealed class OptionMenuWindow : Window
 
         double padX = Math.Round(m.CardPadding.Left * 1.5);
         double padY = Math.Round(m.CardPadding.Top * 1.5);
-        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, new Thickness(padX, padY, padX, padY));
+        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, new Thickness(padX, padY, padX, padY), legendHalfH: W11WindowHelper.GetTuiLegendHalf(m));
         _topHighlight.Visibility = isTui ? Visibility.Collapsed : Visibility.Visible;
         _topHighlight.Background = new SolidColorBrush(pal.IsLight ? Colors.White : Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
         _topHighlight.Margin = new Thickness(0, -padY, 0, 0);
 
         _stack.Children.Clear();
+        _tuiTopHost.Children.Clear();
+        _tuiBottomHost.Children.Clear();
         _hintMap.Clear();
 
         var itemFont = isTui ? W11WindowHelper.MonoFont : W11WindowHelper.TextFont;
@@ -124,29 +154,49 @@ internal sealed class OptionMenuWindow : Window
 
         bool isClipboardMenu = string.Equals(headerTitle, "CLIPBOARD HISTORY", StringComparison.OrdinalIgnoreCase);
         bool useTwoColGrid = !isClipboardMenu && (_cfg.TwoLayerPopup ? items.Count >= 2 : items.Count > 6);
-        double tuiBodyPad = isTui ? 8 : 0;
+        double tuiBodyPad = isTui ? 10 : 0;
 
         _stack.MinWidth = (useTwoColGrid ? (m.MenuTwoColItemWidth * 2) + 4 : m.MenuSingleMinWidth) + tuiBodyPad;
         _stack.MaxWidth = (useTwoColGrid ? (m.MenuTwoColItemWidth * 2) + 8 : (isClipboardMenu ? m.CardWidth : m.MenuSingleMaxWidth)) + tuiBodyPad;
 
-        Border backBtn = null;
-        if (onBack != null)
-        {
-            backBtn = W11WindowHelper.CreateHeaderIconButton(_cfg, "\uE72B", "Back to toolbar (Backspace)", pal, m, () =>
-            {
-                HideMenu();
-                onBack();
-            });
-        }
-        var closeBtn = W11WindowHelper.CreateHeaderIconButton(_cfg, "\uE711", "Close (Esc)", pal, m, HideMenu);
-
         if (isTui)
         {
+            _tuiTopHost.Visibility = Visibility.Visible;
+            _tuiBottomHost.Visibility = Visibility.Visible;
+
+            var leftPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            if (onBack != null)
+            {
+                var backPill = W11WindowHelper.CreateTuiBorderIconPill(_cfg, "\uE72B", "Back to toolbar (Backspace)", pal, m, () =>
+                {
+                    HideMenu();
+                    onBack();
+                });
+                backPill.Margin = new Thickness(0, 0, 4, 0);
+                leftPanel.Children.Add(backPill);
+            }
             string hdr = string.IsNullOrEmpty(headerTitle) ? "MENU" : headerTitle;
-            _stack.Children.Add(W11WindowHelper.CreateTuiHeaderBar(_cfg, hdr, pal, m, leftBtn: backBtn, rightCloseBtn: closeBtn));
+            leftPanel.Children.Add(W11WindowHelper.CreateTuiLegendPill(hdr, pal, m, out _, bold: true, isBottom: false));
+
+            var closePill = W11WindowHelper.CreateTuiBorderIconPill(_cfg, "\uE711", "Close (Esc)", pal, m, HideMenu);
+            _tuiTopHost.Children.Add(W11WindowHelper.CreateTuiTopLegendOverlay(pal, m, leftPanel, closePill));
         }
         else if (!string.IsNullOrEmpty(headerTitle))
         {
+            _tuiTopHost.Visibility = Visibility.Collapsed;
+            _tuiBottomHost.Visibility = Visibility.Collapsed;
+
+            Border backBtn = null;
+            if (onBack != null)
+            {
+                backBtn = W11WindowHelper.CreateHeaderIconButton(_cfg, "\uE72B", "Back to toolbar (Backspace)", pal, m, () =>
+                {
+                    HideMenu();
+                    onBack();
+                });
+            }
+            var closeBtn = W11WindowHelper.CreateHeaderIconButton(_cfg, "\uE711", "Close (Esc)", pal, m, HideMenu);
+
             var hdrGrid = new Grid { Margin = new Thickness(4, 1, 2, 3) };
             hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -415,12 +465,16 @@ internal sealed class OptionMenuWindow : Window
 
         if (isTui)
         {
-            bodyHost.Margin = new Thickness(4, 2, 4, 2);
+            bodyHost.Margin = new Thickness(5, 11, 5, 11);
             _stack.Children.Add(bodyHost);
-            _stack.Children.Add(W11WindowHelper.CreateTuiFooterBar(onBack != null ? "Esc · Backspace: ←" : "Esc: close", pal, m, out _));
+            _tuiBottomHost.Children.Add(W11WindowHelper.CreateTuiBottomLegendOverlay(
+                onBack != null ? "Esc · Backspace: ←" : "Esc: close", pal, m, out _));
         }
         else
         {
+            _tuiTopHost.Visibility = Visibility.Collapsed;
+            _tuiBottomHost.Visibility = Visibility.Collapsed;
+            bodyHost.Margin = new Thickness(0);
             _stack.Children.Add(bodyHost);
         }
 
@@ -431,14 +485,14 @@ internal sealed class OptionMenuWindow : Window
         W11WindowHelper.PositionSecondaryFlyout(Hwnd, this, primaryRect, screenX, screenY);
         _isOpen = true;
 
-        W11WindowHelper.AnimateFlyoutIn(this, _card, _cfg.FadeInMs, W11WindowHelper.ShouldAnimate(_cfg));
+        W11WindowHelper.AnimateFlyoutIn(this, _frameRoot, _cfg.FadeInMs, W11WindowHelper.ShouldAnimate(_cfg));
     }
 
     public void HideMenu()
     {
         if (!_isOpen && !IsVisible) return;
         _isOpen = false;
-        _card.BeginAnimation(UIElement.OpacityProperty, null);
+        _frameRoot.BeginAnimation(UIElement.OpacityProperty, null);
         Hide();
     }
 }

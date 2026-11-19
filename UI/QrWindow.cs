@@ -13,6 +13,7 @@ namespace SparkBar;
 
 internal sealed class QrWindow : Window
 {
+    private readonly Grid _frameRoot;
     private readonly Border _card;
     private readonly ConfigService _cfg;
     private readonly Dictionary<string, Action> _hintMap = new(StringComparer.OrdinalIgnoreCase);
@@ -35,44 +36,47 @@ internal sealed class QrWindow : Window
         var m = W11WindowHelper.GetFlyoutMetrics(cfg);
         bool isTui = cfg.IsNeonTui;
 
-        W11WindowHelper.ConfigureDwmFlyoutChrome(this);
+        W11WindowHelper.ConfigureDwmFlyoutChrome(this, neonTui: isTui);
+        Background = isTui ? Brushes.Transparent : new SolidColorBrush(pal.BgBottom);
 
         var stack = new StackPanel { Orientation = Orientation.Vertical };
 
-        Border backBtn = null;
-        if (onBackToToolbar != null)
-        {
-            backBtn = W11WindowHelper.CreateHeaderIconButton(cfg, "\uE72B", "Back to toolbar (Backspace)", pal, m, () =>
-            {
-                Dismiss();
-                onBackToToolbar();
-            });
-        }
-        var charBadge = new Border
-        {
-            CornerRadius = new CornerRadius(isTui ? 2.5 : 4),
-            Padding = new Thickness(5, 1, 5, 1),
-            Background = new SolidColorBrush(pal.PillFill),
-            BorderBrush = new SolidColorBrush(isTui ? W11WindowHelper.GetTuiHighlightColor(pal) : pal.PillBorder),
-            BorderThickness = new Thickness(1),
-            Margin = new Thickness(4, 0, 2, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            Child = new TextBlock
-            {
-                Text = $"{sourceText.Length}ch",
-                FontFamily = isTui ? W11WindowHelper.MonoFont : W11WindowHelper.TextFont,
-                FontSize = m.CardSubFontSize - 0.5,
-                Foreground = new SolidColorBrush(pal.SubText)
-            }
-        };
-        var closeBtn = W11WindowHelper.CreateHeaderIconButton(cfg, "\uE711", "Close (Esc)", pal, m, () => Dismiss());
-
+        Border charBadge;
         if (isTui)
         {
-            stack.Children.Add(W11WindowHelper.CreateTuiHeaderBar(cfg, "QR CODE", pal, m, leftBtn: backBtn, rightBadgeOrBtn: charBadge, rightCloseBtn: closeBtn));
+            charBadge = W11WindowHelper.CreateTuiLegendPill($"{sourceText.Length}ch", pal, m, out _, bold: false, isBottom: false);
+            charBadge.Margin = new Thickness(0, 0, 4, 0);
         }
         else
         {
+            Border backBtn = null;
+            if (onBackToToolbar != null)
+            {
+                backBtn = W11WindowHelper.CreateHeaderIconButton(cfg, "\uE72B", "Back to toolbar (Backspace)", pal, m, () =>
+                {
+                    Dismiss();
+                    onBackToToolbar();
+                });
+            }
+            charBadge = new Border
+            {
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(5, 1, 5, 1),
+                Background = new SolidColorBrush(pal.PillFill),
+                BorderBrush = new SolidColorBrush(pal.PillBorder),
+                BorderThickness = new Thickness(1),
+                Margin = new Thickness(4, 0, 2, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = new TextBlock
+                {
+                    Text = $"{sourceText.Length}ch",
+                    FontFamily = W11WindowHelper.TextFont,
+                    FontSize = m.CardSubFontSize - 0.5,
+                    Foreground = new SolidColorBrush(pal.SubText)
+                }
+            };
+            var closeBtn = W11WindowHelper.CreateHeaderIconButton(cfg, "\uE711", "Close (Esc)", pal, m, () => Dismiss());
+
             var header = new Grid { Margin = new Thickness(0, 0, 0, 7) };
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -182,12 +186,11 @@ internal sealed class QrWindow : Window
             var bodyContent = new StackPanel
             {
                 Orientation = Orientation.Vertical,
-                Margin = new Thickness(8, 4, 8, 4)
+                Margin = new Thickness(10, 14, 10, 12)
             };
             bodyContent.Children.Add(imgFrame);
             bodyContent.Children.Add(btnRow);
             stack.Children.Add(bodyContent);
-            stack.Children.Add(W11WindowHelper.CreateTuiFooterBar(onBackToToolbar != null ? "Esc · Backspace: ←" : "Esc: close", pal, m, out _));
         }
         else
         {
@@ -210,9 +213,41 @@ internal sealed class QrWindow : Window
             UseLayoutRounding = true,
             Child = inner
         };
-        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, new Thickness(padX, padY, padX, padY));
+        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, new Thickness(padX, padY, padX, padY), legendHalfH: W11WindowHelper.GetTuiLegendHalf(m));
 
-        Content = _card;
+        _frameRoot = new Grid
+        {
+            Background = null,
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true
+        };
+        _frameRoot.Children.Add(_card);
+
+        if (isTui)
+        {
+            var leftPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            if (onBackToToolbar != null)
+            {
+                var backPill = W11WindowHelper.CreateTuiBorderIconPill(cfg, "\uE72B", "Back to toolbar (Backspace)", pal, m, () =>
+                {
+                    Dismiss();
+                    onBackToToolbar();
+                });
+                backPill.Margin = new Thickness(0, 0, 4, 0);
+                leftPanel.Children.Add(backPill);
+            }
+            leftPanel.Children.Add(W11WindowHelper.CreateTuiLegendPill("QR CODE", pal, m, out _, bold: true, isBottom: false));
+
+            var rightPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            rightPanel.Children.Add(charBadge);
+            rightPanel.Children.Add(W11WindowHelper.CreateTuiBorderIconPill(cfg, "\uE711", "Close (Esc)", pal, m, () => Dismiss()));
+
+            _frameRoot.Children.Add(W11WindowHelper.CreateTuiTopLegendOverlay(pal, m, leftPanel, rightPanel));
+            _frameRoot.Children.Add(W11WindowHelper.CreateTuiBottomLegendOverlay(
+                onBackToToolbar != null ? "Esc · Backspace: ←" : "Esc: close", pal, m, out _));
+        }
+
+        Content = _frameRoot;
     }
 
     public void ShowAt(int screenX, int screenY, Native.RECT primaryRect = default)
@@ -223,13 +258,13 @@ internal sealed class QrWindow : Window
         UpdateLayout();
 
         W11WindowHelper.PositionSecondaryFlyout(Hwnd, this, primaryRect, screenX, screenY);
-        W11WindowHelper.AnimateFlyoutIn(this, _card, _cfg.FadeInMs, W11WindowHelper.ShouldAnimate(_cfg));
+        W11WindowHelper.AnimateFlyoutIn(this, _frameRoot, _cfg.FadeInMs, W11WindowHelper.ShouldAnimate(_cfg));
     }
 
     public void Dismiss(bool instant = false)
     {
         if (_closing) return;
         _closing = true;
-        W11WindowHelper.AnimateFlyoutOutAndClose(this, _card, _cfg.FadeOutMs, !instant && W11WindowHelper.ShouldAnimate(_cfg));
+        W11WindowHelper.AnimateFlyoutOutAndClose(this, _frameRoot, _cfg.FadeOutMs, !instant && W11WindowHelper.ShouldAnimate(_cfg));
     }
 }

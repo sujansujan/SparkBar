@@ -25,7 +25,7 @@ internal sealed class ToastWindow : Window
         _cfg = cfg;
         var pal = cfg.Palette;
 
-        W11WindowHelper.ConfigureDwmFlyoutChrome(this);
+        W11WindowHelper.ConfigureDwmFlyoutChrome(this, neonTui: cfg.IsNeonTui);
         IsHitTestVisible = false;
 
         var row = new StackPanel
@@ -94,7 +94,7 @@ internal sealed class ToastWindow : Window
         var pal = _cfg.Palette;
         var m = W11WindowHelper.GetFlyoutMetrics(_cfg);
         bool isTui = _cfg.IsNeonTui;
-        Background = new SolidColorBrush(pal.BgBottom);
+        Background = isTui ? Brushes.Transparent : new SolidColorBrush(pal.BgBottom);
         if (_hwnd != IntPtr.Zero)
             W11WindowHelper.ApplyDwmFlyoutAttributes(_hwnd, pal, smallCorners: m.SmallWindowCorners, neonTui: isTui);
 
@@ -122,7 +122,7 @@ internal sealed class ToastWindow : Window
             badgeBg = pal.IsLight ? Color.FromRgb(0xDC, 0xFC, 0xE7) : Color.FromRgb(0x13, 0x2D, 0x24);
         }
 
-        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, m.ToastPadding);
+        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, m.ToastPadding, legendHalfH: 0);
         if (_card.Child is FrameworkElement innerRow)
             innerRow.Margin = isTui ? m.ToastPadding : new Thickness(0);
         _badge.Width = m.ToastBadgeSize;

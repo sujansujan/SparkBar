@@ -39,9 +39,8 @@ public sealed class PopupActionItem
 internal sealed class PopupToolbarWindow : Window
 {
     private readonly ConfigService _cfg;
+    private readonly Grid _frameRoot;
     private readonly Border _card;
-    private readonly StackPanel _deckPanel;
-    private readonly StackPanel _upperSectionStack;
     private readonly Grid _tuiTopHost;
     private readonly Grid _rowsHost;
     private readonly StackPanel _rowsStack;
@@ -86,7 +85,7 @@ internal sealed class PopupToolbarWindow : Window
         _onReorder = onReorder;
         var pal = cfg.Palette;
 
-        W11WindowHelper.ConfigureDwmFlyoutChrome(this);
+        W11WindowHelper.ConfigureDwmFlyoutChrome(this, neonTui: cfg.IsNeonTui);
 
         _upperRow = new Grid
         {
@@ -115,30 +114,22 @@ internal sealed class PopupToolbarWindow : Window
             VerticalAlignment = VerticalAlignment.Center
         };
 
-        _tuiTopHost = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch, Visibility = Visibility.Collapsed };
+        _tuiTopHost = new Grid
+        {
+            Background = null,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Top,
+            Visibility = Visibility.Collapsed
+        };
         _rowsHost = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
-        _upperSectionStack = new StackPanel
+        _tuiBottomHost = new Grid
         {
-            Orientation = Orientation.Vertical,
-            HorizontalAlignment = HorizontalAlignment.Stretch
+            Background = null,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            MaxWidth = 140,
+            Visibility = Visibility.Collapsed
         };
-        _upperSectionStack.Children.Add(_tuiTopHost);
-        _upperSectionStack.Children.Add(_rowsHost);
-
-        _tuiBottomHost = new Grid { HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed };
-        _tuiBottomHost.SetBinding(WidthProperty, new System.Windows.Data.Binding(nameof(ActualWidth))
-        {
-            Source = _upperSectionStack,
-            Mode = System.Windows.Data.BindingMode.OneWay
-        });
-
-        _deckPanel = new StackPanel
-        {
-            Orientation = Orientation.Vertical,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        _deckPanel.Children.Add(_upperSectionStack);
-        _deckPanel.Children.Add(_tuiBottomHost);
 
         _topHighlight = new Border
         {
@@ -153,7 +144,7 @@ internal sealed class PopupToolbarWindow : Window
 
         var innerGrid = new Grid();
         innerGrid.Children.Add(_topHighlight);
-        innerGrid.Children.Add(_deckPanel);
+        innerGrid.Children.Add(_rowsHost);
 
         _card = new Border
         {
@@ -163,8 +154,23 @@ internal sealed class PopupToolbarWindow : Window
             UseLayoutRounding = true,
             Child = innerGrid
         };
+        _card.SizeChanged += (_, e) =>
+        {
+            if (e.NewSize.Width > 24)
+                _tuiBottomHost.MaxWidth = Math.Max(48, e.NewSize.Width - 2);
+        };
 
-        Content = _card;
+        _frameRoot = new Grid
+        {
+            Background = null,
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true
+        };
+        _frameRoot.Children.Add(_card);
+        _frameRoot.Children.Add(_tuiTopHost);
+        _frameRoot.Children.Add(_tuiBottomHost);
+
+        Content = _frameRoot;
 
         _hoverTip = new HoverTipWindow(cfg);
 
@@ -298,11 +304,11 @@ internal sealed class PopupToolbarWindow : Window
         var m = GetMetrics();
         bool isTui = _cfg.IsNeonTui;
 
-        Background = new SolidColorBrush(pal.BgBottom);
+        Background = isTui ? Brushes.Transparent : new SolidColorBrush(pal.BgBottom);
         if (Hwnd != IntPtr.Zero)
             W11WindowHelper.ApplyDwmFlyoutAttributes(Hwnd, pal, smallCorners: m.SmallWindowCorners, neonTui: isTui);
 
-        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, m.CardPadding);
+        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, m.CardPadding, legendHalfH: W11WindowHelper.GetTuiLegendHalf(m));
         _topHighlight.Visibility = isTui ? Visibility.Collapsed : Visibility.Visible;
         _topHighlight.Background = new SolidColorBrush(pal.IsLight ? Colors.White : Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
         _layerDivider.Background = new SolidColorBrush(Color.FromArgb(160, pal.Separator.R, pal.Separator.G, pal.Separator.B));
@@ -371,7 +377,7 @@ internal sealed class PopupToolbarWindow : Window
 
         int hintCounter = 1;
 
-        void PopulateRow(Grid targetGrid, IReadOnlyList<PopupActionItem> rowActions)
+        void PopulateRow(Grid targetGrid, IReadOnlyList<PopupActionItem> rowActions, Thickness cellMargin)
         {
             int prevGrp = -1;
             int colIdx = 0;
@@ -383,40 +389,25 @@ internal sealed class PopupToolbarWindow : Window
                 if (act.OnClick != null)
                     _hintMap[hint] = act.OnClick;
 
-                if (prevGrp != -1 && act.Group != prevGrp)
+                if (isTui ? i > 0 : (prevGrp != -1 && act.Group != prevGrp))
                 {
                     targetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                    UIElement sepEl;
-                    if (isTui)
+                    var vSep = new Border
                     {
-                        sepEl = new TextBlock
-                        {
-                            Text = "│",
-                            FontFamily = W11WindowHelper.MonoFont,
-                            FontSize = m.TextFontSize + 1,
-                            Foreground = tuiFrameBrush,
-                            Opacity = 0.65,
-                            VerticalAlignment = VerticalAlignment.Center,
-                            Margin = new Thickness(0.5, 0, 0.5, 0),
-                            IsHitTestVisible = false
-                        };
-                    }
-                    else
-                    {
-                        var vSep = new Border
-                        {
-                            Width = 1,
-                            Height = m.SepHeight,
-                            Background = sepBrush,
-                            VerticalAlignment = VerticalAlignment.Center,
-                            SnapsToDevicePixels = true,
-                            Margin = new Thickness(1.5, 0, 1.5, 0)
-                        };
-                        RenderOptions.SetEdgeMode(vSep, EdgeMode.Aliased);
-                        sepEl = vSep;
-                    }
-                    Grid.SetColumn(sepEl, colIdx++);
-                    targetGrid.Children.Add(sepEl);
+                        Width = 1,
+                        Height = isTui ? double.NaN : m.SepHeight,
+                        Background = isTui ? tuiFrameBrush : sepBrush,
+                        Opacity = isTui
+                            ? (act.Group != prevGrp ? (pal.IsLight ? 0.55 : 0.65) : (pal.IsLight ? 0.25 : 0.30))
+                            : 1.0,
+                        VerticalAlignment = isTui ? VerticalAlignment.Stretch : VerticalAlignment.Center,
+                        SnapsToDevicePixels = true,
+                        Margin = isTui ? new Thickness(0) : new Thickness(1.5, 0, 1.5, 0),
+                        IsHitTestVisible = false
+                    };
+                    RenderOptions.SetEdgeMode(vSep, EdgeMode.Aliased);
+                    Grid.SetColumn(vSep, colIdx++);
+                    targetGrid.Children.Add(vSep);
                 }
                 prevGrp = act.Group;
 
@@ -560,7 +551,7 @@ internal sealed class PopupToolbarWindow : Window
                 {
                     CornerRadius = new CornerRadius(m.BtnCornerRadius),
                     BorderThickness = new Thickness(1),
-                    Margin = m.BtnMargin,
+                    Margin = cellMargin,
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     SnapsToDevicePixels = true,
                     UseLayoutRounding = true,
@@ -707,14 +698,14 @@ internal sealed class PopupToolbarWindow : Window
             PartitionTwoLayersSymmetrically(deckActions, m, out var lowerItems, out var upperItems);
 
             // Number lower (relevant) row 1..K first so primary actions have 1, 2, 3... shortcuts
-            PopulateRow(_lowerRow, lowerItems);
-            PopulateRow(_upperRow, upperItems);
+            PopulateRow(_lowerRow, lowerItems, isTui ? new Thickness(2, 2, 2, 10) : m.BtnMargin);
+            PopulateRow(_upperRow, upperItems, isTui ? new Thickness(2, 9, 2, 2) : m.BtnMargin);
             _upperRow.Visibility = Visibility.Visible;
 
             if (isTui)
             {
-                _upperRow.Margin = new Thickness(3, 2, 3, 2);
-                _lowerRow.Margin = new Thickness(3, 2, 3, 2);
+                _upperRow.Margin = new Thickness(0);
+                _lowerRow.Margin = new Thickness(0);
                 _rowsStack.Children.Add(_upperRow);
                 _rowsStack.Children.Add(W11WindowHelper.CreateTuiHorizontalDivider(pal, m));
                 _rowsStack.Children.Add(_lowerRow);
@@ -733,9 +724,9 @@ internal sealed class PopupToolbarWindow : Window
         {
             _upperRow.Visibility = Visibility.Collapsed;
             _layerDivider.Visibility = Visibility.Collapsed;
-            PopulateRow(_lowerRow, deckActions);
+            PopulateRow(_lowerRow, deckActions, isTui ? new Thickness(2, 9, 2, 10) : m.BtnMargin);
 
-            _lowerRow.Margin = isTui ? new Thickness(3, 2, 3, 2) : new Thickness(0);
+            _lowerRow.Margin = new Thickness(0);
             _rowsStack.Children.Add(_lowerRow);
         }
 
@@ -743,49 +734,20 @@ internal sealed class PopupToolbarWindow : Window
 
         if (isTui)
         {
-            // Flush Neon TUI header band with Calculate/Convert & Word Count embedded right inside
-            double topFsz = Math.Max(9.0, m.MenuHeaderFontSize + 0.5);
-            double topRowH = Math.Ceiling(topFsz * 1.45);
             _tuiTopHost.Visibility = Visibility.Visible;
             _tuiBottomHost.Visibility = Visibility.Visible;
 
-            _tuiTopHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            _tuiTopHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            var topBarGrid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
-            topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // badges
-            topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // dashes
-
-            TextBlock MakeBorderGlyph(string s, Brush fg, bool bold = false)
+            var leftBadges = new StackPanel
             {
-                var t = new TextBlock
-                {
-                    Text = s,
-                    FontFamily = W11WindowHelper.MonoFont,
-                    FontWeight = bold ? FontWeights.Bold : FontWeights.Normal,
-                    FontSize = topFsz,
-                    LineHeight = topRowH,
-                    LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
-                    Foreground = fg,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                TextOptions.SetTextFormattingMode(t, TextFormattingMode.Display);
-                return t;
-            }
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
 
-            var badgeRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-
-            Border BuildTopBorderBadge(string txt, string tipText, bool primaryShade, Action onClick, Action onRightClick = null)
+            Border BuildTopLegendBadge(string txt, string tipText, bool primaryShade, Action onClick, Action onRightClick = null)
             {
-                var label = MakeBorderGlyph(primaryShade ? $"░▒▓ {txt} ▓▒░" : $"░▒ {txt} ▒░", tuiAccentBrush, bold: true);
-                var pill = new Border
-                {
-                    CornerRadius = new CornerRadius(2.5),
-                    Padding = new Thickness(2, 0, 2, 0),
-                    Cursor = Cursors.Hand,
-                    Background = Brushes.Transparent,
-                    Child = label
-                };
+                var pill = W11WindowHelper.CreateTuiLegendPill(txt, pal, m, out _, bold: primaryShade, isBottom: false);
+                pill.Cursor = Cursors.Hand;
+                var normalBg = pill.Background;
                 pill.MouseEnter += (_, _) =>
                 {
                     ResetAutoHide();
@@ -794,7 +756,7 @@ internal sealed class PopupToolbarWindow : Window
                 };
                 pill.MouseLeave += (_, _) =>
                 {
-                    pill.Background = Brushes.Transparent;
+                    pill.Background = normalBg;
                     if (_tuiTickerTb != null) _tuiTickerTb.Text = _tuiDefaultTicker;
                 };
                 pill.MouseLeftButtonDown += (_, e) => { e.Handled = true; };
@@ -808,16 +770,16 @@ internal sealed class PopupToolbarWindow : Window
                 string calcHint = SmartParser.HintForIndex(hintCounter++);
                 if (calcItem.OnClick != null) _hintMap[calcHint] = calcItem.OnClick;
                 string calcLabel = !string.IsNullOrEmpty(calcItem.ShortLabel) ? calcItem.ShortLabel : calcItem.Glyph;
-                badgeRow.Children.Add(BuildTopBorderBadge(calcLabel, $"{calcItem.Tip} [{calcHint}]", primaryShade: true, calcItem.OnClick));
-                if (statsItem != null)
-                    badgeRow.Children.Add(MakeBorderGlyph("─", tuiFrameBrush));
+                var calcPill = BuildTopLegendBadge(calcLabel, $"{calcItem.Tip} [{calcHint}]", primaryShade: true, calcItem.OnClick);
+                if (statsItem != null) calcPill.Margin = new Thickness(0, 0, 4, 0);
+                leftBadges.Children.Add(calcPill);
             }
 
             if (statsItem != null)
             {
                 string statsLabel = (!string.IsNullOrEmpty(statsItem.ShortLabel) ? statsItem.ShortLabel : statsItem.Glyph)
                     .Replace(" ", "·");
-                badgeRow.Children.Add(BuildTopBorderBadge(
+                leftBadges.Children.Add(BuildTopLegendBadge(
                     statsLabel,
                     $"{statsItem.Tip} (Click: Inspect · Right-click: Copy)",
                     primaryShade: calcItem == null,
@@ -827,37 +789,13 @@ internal sealed class PopupToolbarWindow : Window
 
             if (calcItem == null && statsItem == null)
             {
-                badgeRow.Children.Add(MakeBorderGlyph("░▒▓ SPARKBAR ▓▒░", tuiAccentBrush, bold: true));
+                leftBadges.Children.Add(W11WindowHelper.CreateTuiLegendPill("SPARKBAR", pal, m, out _, bold: true, isBottom: false));
             }
 
-            badgeRow.Children.Add(MakeBorderGlyph(" ", tuiFrameBrush));
-            Grid.SetColumn(badgeRow, 0);
-            topBarGrid.Children.Add(badgeRow);
-
-            var topFill = W11WindowHelper.CreateTuiDashFill('─', tuiFrameBrush, topFsz, topRowH);
-            Grid.SetColumn(topFill, 1);
-            topBarGrid.Children.Add(topFill);
-
-            var tuiHi = W11WindowHelper.GetTuiHighlightColor(pal);
-            var topBand = new Border
-            {
-                CornerRadius = new CornerRadius(2.5, 2.5, 0, 0),
-                Background = new SolidColorBrush(pal.IsLight
-                    ? Color.FromArgb(14, 0x03, 0x69, 0xA1)
-                    : Color.FromArgb(20, tuiHi.R, tuiHi.G, tuiHi.B)),
-                Padding = new Thickness(5, 1.5, 5, 1.5),
-                Child = topBarGrid
-            };
-            Grid.SetRow(topBand, 0);
-            _tuiTopHost.Children.Add(topBand);
-
-            var topDiv = W11WindowHelper.CreateTuiHorizontalDivider(pal, m);
-            Grid.SetRow(topDiv, 1);
-            _tuiTopHost.Children.Add(topDiv);
+            _tuiTopHost.Children.Add(W11WindowHelper.CreateTuiTopLegendOverlay(pal, m, leftBadges));
 
             _tuiDefaultTicker = "✦ Hover icon";
-            var botBar = W11WindowHelper.CreateTuiFooterBar(_tuiDefaultTicker, pal, m, out _tuiTickerTb);
-            _tuiBottomHost.Children.Add(botBar);
+            _tuiBottomHost.Children.Add(W11WindowHelper.CreateTuiBottomLegendOverlay(_tuiDefaultTicker, pal, m, out _tuiTickerTb));
         }
         else
         {
@@ -894,7 +832,7 @@ internal sealed class PopupToolbarWindow : Window
         LastScreenRect = new Native.RECT { Left = px, Top = py, Right = px + physW, Bottom = py + physH };
         _isOpen = true;
 
-        W11WindowHelper.AnimateFlyoutIn(this, _card, _cfg.FadeInMs, !instant && W11WindowHelper.ShouldAnimate(_cfg));
+        W11WindowHelper.AnimateFlyoutIn(this, _frameRoot, _cfg.FadeInMs, !instant && W11WindowHelper.ShouldAnimate(_cfg));
         ResetAutoHide();
     }
 
@@ -904,7 +842,7 @@ internal sealed class PopupToolbarWindow : Window
         _isOpen = false;
         _autoHideTimer.Stop();
         _hoverTip.HideTip();
-        _card.BeginAnimation(UIElement.OpacityProperty, null);
+        _frameRoot.BeginAnimation(UIElement.OpacityProperty, null);
         Hide();
     }
 

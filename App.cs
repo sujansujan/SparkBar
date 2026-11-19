@@ -36,6 +36,7 @@ public sealed class App : Application
     private QrWindow _qrWindow;
     private UrlBuilderWindow _urlBuilderWindow;
     private SettingsWindow _settingsWindow;
+    private bool _flyoutStyleIsTui;
 
     private bool _enabled = true;
     private volatile bool _selBusy;
@@ -98,20 +99,7 @@ public sealed class App : Application
         _cfg.UpdatePalette();
 
         // Pre-warm persistent flyout windows so showing any toolbar, menu, or toast takes < 2ms
-        _popupWindow = new PopupToolbarWindow(_cfg, ReorderPopupItem);
-        _popupWindow.PreWarm();
-        _optionMenuWindow = new OptionMenuWindow(_cfg);
-        _optionMenuWindow.PreWarm();
-        _resultCardWindow = new ResultCardWindow(
-            _cfg,
-            onCopyText: txt => { UiaHelper.SetClipboardUnicodeText(txt); _cfg.RecordClipboardItem(txt); },
-            onReplaceText: (win, txt) => ApplyTransform(win, _selText, editable: true, _ => txt),
-            onOpenWebUrl: OpenUrl,
-            onToast: msg => ShowToast(msg),
-            onBackToToolbar: ReturnToMainPopup);
-        _resultCardWindow.PreWarm();
-        _toastWindow = new ToastWindow(_cfg);
-        _toastWindow.PreWarm();
+        CreateAndPreWarmFlyouts();
 
         // Start dedicated selection worker thread (owns its own thread-local IUIAutomation COM instance)
         _selWorkerThread = new Thread(SelectionWorkerLoop)
@@ -214,6 +202,30 @@ public sealed class App : Application
     private bool IsOptionMenuOpen => _optionMenuWindow != null && _optionMenuWindow.IsMenuOpen;
     private bool IsResultCardOpen => _resultCardWindow != null && _resultCardWindow.IsCardOpen;
 
+    private void CreateAndPreWarmFlyouts()
+    {
+        try { _popupWindow?.Close(); } catch { }
+        try { _optionMenuWindow?.Close(); } catch { }
+        try { _resultCardWindow?.Close(); } catch { }
+        try { _toastWindow?.Close(); } catch { }
+
+        _popupWindow = new PopupToolbarWindow(_cfg, ReorderPopupItem);
+        _popupWindow.PreWarm();
+        _optionMenuWindow = new OptionMenuWindow(_cfg);
+        _optionMenuWindow.PreWarm();
+        _resultCardWindow = new ResultCardWindow(
+            _cfg,
+            onCopyText: txt => { UiaHelper.SetClipboardUnicodeText(txt); _cfg.RecordClipboardItem(txt); },
+            onReplaceText: (win, txt) => ApplyTransform(win, _selText, editable: true, _ => txt),
+            onOpenWebUrl: OpenUrl,
+            onToast: msg => ShowToast(msg),
+            onBackToToolbar: ReturnToMainPopup);
+        _resultCardWindow.PreWarm();
+        _toastWindow = new ToastWindow(_cfg);
+        _toastWindow.PreWarm();
+        _flyoutStyleIsTui = _cfg.IsNeonTui;
+    }
+
     private void ApplyFluentAppTheme()
     {
         var pal = _cfg.UpdatePalette();
@@ -222,6 +234,13 @@ public sealed class App : Application
             ThemeMode = pal.IsLight ? System.Windows.ThemeMode.Light : System.Windows.ThemeMode.Dark;
         }
         catch { }
+
+        if (_popupWindow != null && _flyoutStyleIsTui != _cfg.IsNeonTui)
+        {
+            DismissAllMenus(instant: true);
+            HideQr();
+            CreateAndPreWarmFlyouts();
+        }
     }
 
     private void OnForegroundWindowChanged(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint idEventThread, uint dwmsEventTime)

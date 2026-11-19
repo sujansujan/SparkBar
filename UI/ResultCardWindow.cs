@@ -32,9 +32,9 @@ internal sealed class ResultCardWindow : Window
     private readonly Action<string> _onToast;
     private readonly Action _onBackToToolbar;
 
+    private readonly Grid _frameRoot;
     private readonly Border _card;
     private readonly Border _topHighlight;
-    private readonly StackPanel _outerStack;
     private readonly Grid _tuiTopHost;
     private readonly Grid _bodyFrameHost;
     private readonly StackPanel _contentStack;
@@ -93,7 +93,7 @@ internal sealed class ResultCardWindow : Window
         _onBackToToolbar = onBackToToolbar;
 
         var pal = cfg.Palette;
-        W11WindowHelper.ConfigureDwmFlyoutChrome(this);
+        W11WindowHelper.ConfigureDwmFlyoutChrome(this, neonTui: cfg.IsNeonTui);
 
         _modeTabRow = new StackPanel
         {
@@ -156,20 +156,27 @@ internal sealed class ResultCardWindow : Window
         _contentStack.Children.Add(_footerSep);
         _contentStack.Children.Add(_footerRow);
 
-        _tuiTopHost = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch, Visibility = Visibility.Collapsed };
+        _tuiTopHost = new Grid
+        {
+            Background = null,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Top,
+            Visibility = Visibility.Collapsed
+        };
         _bodyFrameHost = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
-        _tuiBottomHost = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch, Visibility = Visibility.Collapsed };
-
-        _outerStack = new StackPanel { Orientation = Orientation.Vertical };
-        _outerStack.Children.Add(_tuiTopHost);
-        _outerStack.Children.Add(_bodyFrameHost);
-        _outerStack.Children.Add(_tuiBottomHost);
+        _tuiBottomHost = new Grid
+        {
+            Background = null,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Visibility = Visibility.Collapsed
+        };
 
         _topHighlight = W11WindowHelper.CreateTopHighlight(pal, topNegativeMargin: -8);
 
         var innerGrid = new Grid();
         innerGrid.Children.Add(_topHighlight);
-        innerGrid.Children.Add(_outerStack);
+        innerGrid.Children.Add(_bodyFrameHost);
 
         _card = new Border
         {
@@ -180,7 +187,17 @@ internal sealed class ResultCardWindow : Window
             Child = innerGrid
         };
 
-        Content = _card;
+        _frameRoot = new Grid
+        {
+            Background = null,
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true
+        };
+        _frameRoot.Children.Add(_card);
+        _frameRoot.Children.Add(_tuiTopHost);
+        _frameRoot.Children.Add(_tuiBottomHost);
+
+        Content = _frameRoot;
     }
 
     public void PreWarm()
@@ -226,7 +243,7 @@ internal sealed class ResultCardWindow : Window
         var m = W11WindowHelper.GetFlyoutMetrics(_cfg);
         bool isTui = _cfg.IsNeonTui;
 
-        Background = new SolidColorBrush(pal.BgBottom);
+        Background = isTui ? Brushes.Transparent : new SolidColorBrush(pal.BgBottom);
         if (Hwnd != IntPtr.Zero)
         {
             Native.RemoveExStyle(Hwnd, Native.WS_EX_TRANSPARENT);
@@ -236,7 +253,7 @@ internal sealed class ResultCardWindow : Window
         _card.Width = m.CardWidth + (isTui ? 6 : 0);
         double classicPadX = Math.Round(m.CardPadding.Left * 3.0);
         double classicPadY = Math.Round(m.CardPadding.Top * 2.5);
-        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, new Thickness(classicPadX, classicPadY, classicPadX, classicPadY));
+        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, new Thickness(classicPadX, classicPadY, classicPadX, classicPadY), legendHalfH: W11WindowHelper.GetTuiLegendHalf(m));
         _topHighlight.Visibility = isTui ? Visibility.Collapsed : Visibility.Visible;
         _topHighlight.Background = new SolidColorBrush(pal.IsLight ? Colors.White : Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
         _topHighlight.Margin = new Thickness(0, -classicPadY, 0, 0);
@@ -252,9 +269,9 @@ internal sealed class ResultCardWindow : Window
         {
             _tuiTopHost.Visibility = Visibility.Visible;
             _tuiBottomHost.Visibility = Visibility.Visible;
-            _contentStack.Margin = new Thickness(7, 4, 7, 4);
+            _contentStack.Margin = new Thickness(8, 12, 8, 12);
             _bodyFrameHost.Children.Add(_contentStack);
-            _tuiBottomHost.Children.Add(W11WindowHelper.CreateTuiFooterBar(
+            _tuiBottomHost.Children.Add(W11WindowHelper.CreateTuiBottomLegendOverlay(
                 _onBackToToolbar != null ? "1..3: run · Backspace: ←" : "1..3: run · Esc: close",
                 pal, m, out _));
         }
@@ -360,25 +377,39 @@ internal sealed class ResultCardWindow : Window
             _headerRow.Children.RemoveAt(_headerRow.Children.Count - 1);
         _tuiTopHost.Children.Clear();
 
-        Border backBtn = null;
-        if (_onBackToToolbar != null)
-        {
-            backBtn = W11WindowHelper.CreateHeaderIconButton(_cfg, "\uE72B", "Back to toolbar (Backspace)", pal, m, () =>
-            {
-                HideCard();
-                _onBackToToolbar();
-            });
-        }
-        var closeBtn = W11WindowHelper.CreateHeaderIconButton(_cfg, "\uE711", "Close (Esc)", pal, m, HideCard);
-
         if (isTui)
         {
+            var leftPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            if (_onBackToToolbar != null)
+            {
+                var backPill = W11WindowHelper.CreateTuiBorderIconPill(_cfg, "\uE72B", "Back to toolbar (Backspace)", pal, m, () =>
+                {
+                    HideCard();
+                    _onBackToToolbar();
+                });
+                backPill.Margin = new Thickness(0, 0, 4, 0);
+                leftPanel.Children.Add(backPill);
+            }
             string modeTitle = _mode == ResultCardMode.Define ? "DEFINE" : _mode == ResultCardMode.Translate ? "TRANSLATE" : "INSPECT";
-            _tuiTopHost.Children.Add(W11WindowHelper.CreateTuiHeaderBar(_cfg, modeTitle, pal, m, leftBtn: backBtn, rightCloseBtn: closeBtn));
-            _headerRow.Margin = new Thickness(0, 3, 0, 5);
+            leftPanel.Children.Add(W11WindowHelper.CreateTuiLegendPill(modeTitle, pal, m, out _, bold: true, isBottom: false));
+
+            var closePill = W11WindowHelper.CreateTuiBorderIconPill(_cfg, "\uE711", "Close (Esc)", pal, m, HideCard);
+            _tuiTopHost.Children.Add(W11WindowHelper.CreateTuiTopLegendOverlay(pal, m, leftPanel, closePill));
+            _headerRow.Margin = new Thickness(0, 0, 0, 5);
         }
         else
         {
+            Border backBtn = null;
+            if (_onBackToToolbar != null)
+            {
+                backBtn = W11WindowHelper.CreateHeaderIconButton(_cfg, "\uE72B", "Back to toolbar (Backspace)", pal, m, () =>
+                {
+                    HideCard();
+                    _onBackToToolbar();
+                });
+            }
+            var closeBtn = W11WindowHelper.CreateHeaderIconButton(_cfg, "\uE711", "Close (Esc)", pal, m, HideCard);
+
             _headerRow.Margin = new Thickness(0, 0, 0, 6);
             if (backBtn != null)
             {
@@ -1123,7 +1154,7 @@ internal sealed class ResultCardWindow : Window
         {
             W11WindowHelper.PositionSecondaryFlyout(Hwnd, this, _primaryRect, _anchorX, _anchorY);
             _isOpen = true;
-            W11WindowHelper.AnimateFlyoutIn(this, _card, _cfg.FadeInMs, W11WindowHelper.ShouldAnimate(_cfg));
+            W11WindowHelper.AnimateFlyoutIn(this, _frameRoot, _cfg.FadeInMs, W11WindowHelper.ShouldAnimate(_cfg));
         }
         else
         {
@@ -1177,7 +1208,7 @@ internal sealed class ResultCardWindow : Window
         _langPickerExpanded = false;
         if (!_isOpen && !IsVisible) return;
         _isOpen = false;
-        _card.BeginAnimation(UIElement.OpacityProperty, null);
+        _frameRoot.BeginAnimation(UIElement.OpacityProperty, null);
         Hide();
     }
 }

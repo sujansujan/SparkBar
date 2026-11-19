@@ -59,33 +59,6 @@ internal static class W11WindowHelper
     public static Color GetTuiHighlightColor(ThemePalette pal) =>
         pal.IsLight ? Color.FromRgb(0x02, 0x84, 0xC7) : Color.FromRgb(0x38, 0xBD, 0xF8);
 
-    public static UIElement CreateTuiDashFill(char ch, Brush brush, double fontSize, double rowHeight)
-    {
-        var tb = new TextBlock
-        {
-            Text = new string(ch, 160),
-            FontFamily = MonoFont,
-            FontSize = fontSize,
-            LineHeight = rowHeight,
-            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
-            Foreground = brush,
-            SnapsToDevicePixels = true
-        };
-        TextOptions.SetTextFormattingMode(tb, TextFormattingMode.Display);
-        var canvas = new Canvas
-        {
-            Height = rowHeight,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Center,
-            ClipToBounds = true,
-            IsHitTestVisible = false
-        };
-        Canvas.SetLeft(tb, 0);
-        Canvas.SetTop(tb, 0);
-        canvas.Children.Add(tb);
-        return canvas;
-    }
-
     public static UIElement CreateTuiHorizontalDivider(ThemePalette pal, FlyoutMetrics m, char leftCh = '├', char fillCh = '─', char rightCh = '┤')
     {
         var line = new Border
@@ -100,18 +73,20 @@ internal static class W11WindowHelper
         return line;
     }
 
-    public static void ApplyNeonTuiCardChrome(Border card, ThemePalette pal, bool isTui, Thickness classicPadding)
+    public static void ApplyNeonTuiCardChrome(Border card, ThemePalette pal, bool isTui, Thickness classicPadding, double legendHalfH = 8.0)
     {
         card.Background = new LinearGradientBrush(pal.BgTop, pal.BgBottom, 90);
         if (isTui)
         {
+            card.Margin = new Thickness(0, legendHalfH, 0, legendHalfH);
             card.Padding = new Thickness(0);
             card.BorderThickness = new Thickness(1.5);
             card.BorderBrush = new SolidColorBrush(GetTuiHighlightColor(pal));
-            card.CornerRadius = new CornerRadius(4);
+            card.CornerRadius = new CornerRadius(6);
         }
         else
         {
+            card.Margin = new Thickness(0);
             card.Padding = classicPadding;
             card.BorderThickness = new Thickness(0);
             card.BorderBrush = Brushes.Transparent;
@@ -119,139 +94,144 @@ internal static class W11WindowHelper
         }
     }
 
-    public static StackPanel CreateTuiHeaderBar(
-        ConfigService cfg,
-        string title,
+    public static double GetTuiLegendHeight(FlyoutMetrics m) =>
+        Math.Max(15.0, Math.Ceiling(Math.Max(9.0, m.MenuHeaderFontSize) * 1.6));
+
+    public static double GetTuiLegendHalf(FlyoutMetrics m) =>
+        Math.Ceiling(GetTuiLegendHeight(m) / 2.0);
+
+    public static Border CreateTuiLegendPill(
+        string text,
         ThemePalette pal,
         FlyoutMetrics m,
-        UIElement leftBtn = null,
-        UIElement rightBadgeOrBtn = null,
-        UIElement rightCloseBtn = null)
+        out TextBlock labelTb,
+        bool bold = true,
+        bool isBottom = false)
     {
-        double fSz = Math.Max(9.5, m.MenuHeaderFontSize + 0.5);
-        double rowH = Math.Max(18, Math.Ceiling(fSz * 1.45));
-        var hlColor = GetTuiHighlightColor(pal);
-        var frameBrush = new SolidColorBrush(hlColor);
-        var accentBrush = new SolidColorBrush(GetTuiAccentColor(pal));
+        double h = GetTuiLegendHeight(m);
+        double fsz = Math.Max(9.0, m.MenuHeaderFontSize);
+        Color baseC = isBottom ? pal.BgBottom : pal.BgTop;
+        Color opaqueBg = Color.FromRgb(baseC.R, baseC.G, baseC.B);
 
-        var g = new Grid { MinHeight = rowH, HorizontalAlignment = HorizontalAlignment.Stretch, SnapsToDevicePixels = true };
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // leftBtn
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // ░▒▓ TITLE ▓▒░
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // dashes
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // rightBadgeOrBtn
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // rightCloseBtn
-
-        TextBlock MakeMono(string txt, Brush fg, bool bold = false)
+        labelTb = new TextBlock
         {
-            var tb = new TextBlock
-            {
-                Text = txt,
-                FontFamily = MonoFont,
-                FontWeight = bold ? FontWeights.Bold : FontWeights.Normal,
-                FontSize = fSz,
-                LineHeight = rowH,
-                LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
-                Foreground = fg,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            TextOptions.SetTextFormattingMode(tb, TextFormattingMode.Display);
-            return tb;
-        }
-
-        if (leftBtn != null)
-        {
-            var spLeft = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 3, 0) };
-            spLeft.Children.Add(leftBtn);
-            Grid.SetColumn(spLeft, 0);
-            g.Children.Add(spLeft);
-        }
-
-        var tag = MakeMono($"░▒▓ {title} ▓▒░ ", accentBrush, bold: true);
-        Grid.SetColumn(tag, 1);
-        g.Children.Add(tag);
-
-        var fill = CreateTuiDashFill('─', frameBrush, fSz, rowH);
-        fill.Opacity = 0.55;
-        Grid.SetColumn(fill, 2);
-        g.Children.Add(fill);
-
-        if (rightBadgeOrBtn != null)
-        {
-            var w = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 2, 0) };
-            w.Children.Add(rightBadgeOrBtn);
-            Grid.SetColumn(w, 3);
-            g.Children.Add(w);
-        }
-
-        if (rightCloseBtn != null)
-        {
-            var spRight = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 0, 0) };
-            spRight.Children.Add(rightCloseBtn);
-            Grid.SetColumn(spRight, 4);
-            g.Children.Add(spRight);
-        }
-
-        var strip = new Border
-        {
-            CornerRadius = new CornerRadius(2.5, 2.5, 0, 0),
-            Background = new SolidColorBrush(Color.FromArgb((byte)(pal.IsLight ? 20 : 28), hlColor.R, hlColor.G, hlColor.B)),
-            Padding = new Thickness(5, 1.5, 5, 1.5),
-            Child = g
+            Text = text,
+            FontFamily = MonoFont,
+            FontWeight = bold ? FontWeights.Bold : FontWeights.SemiBold,
+            FontSize = fsz,
+            Foreground = new SolidColorBrush(GetTuiAccentColor(pal)),
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            SnapsToDevicePixels = true
         };
+        TextOptions.SetTextFormattingMode(labelTb, TextFormattingMode.Display);
 
-        var outer = new StackPanel { Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Stretch };
-        outer.Children.Add(strip);
-        outer.Children.Add(CreateTuiHorizontalDivider(pal, m));
-        return outer;
+        return new Border
+        {
+            Height = h,
+            Background = new SolidColorBrush(opaqueBg),
+            BorderBrush = new SolidColorBrush(GetTuiHighlightColor(pal)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(3.5),
+            Padding = new Thickness(5, 0, 5, 0),
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true,
+            Child = labelTb
+        };
     }
 
-    public static StackPanel CreateTuiFooterBar(string defaultText, ThemePalette pal, FlyoutMetrics m, out TextBlock tickerTb)
+    public static Border CreateTuiBorderIconPill(
+        ConfigService cfg,
+        string iconGlyph,
+        string toolTip,
+        ThemePalette pal,
+        FlyoutMetrics m,
+        Action onClick)
     {
-        double fSz = Math.Max(9.0, m.MenuHeaderFontSize + 0.5);
-        double rowH = Math.Ceiling(fSz * 1.35);
-        var hlColor = GetTuiHighlightColor(pal);
-        var frameBrush = new SolidColorBrush(hlColor);
-        var accentBrush = new SolidColorBrush(GetTuiAccentColor(pal));
+        double h = GetTuiLegendHeight(m);
+        double fsz = Math.Max(8.5, m.MenuHeaderFontSize);
+        Color opaqueBg = Color.FromRgb(pal.BgTop.R, pal.BgTop.G, pal.BgTop.B);
+        var normalBg = new SolidColorBrush(opaqueBg);
+        var hoverBg = new LinearGradientBrush(pal.HoverTop, pal.HoverBottom, 90);
+        var hlBrush = new SolidColorBrush(GetTuiHighlightColor(pal));
+        var subBrush = new SolidColorBrush(pal.SubText);
+        var textBrush = new SolidColorBrush(pal.Text);
 
-        var g = new Grid { Height = rowH, HorizontalAlignment = HorizontalAlignment.Stretch, SnapsToDevicePixels = true };
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        tickerTb = new TextBlock
+        var tb = new TextBlock
         {
-            Text = defaultText,
-            FontFamily = MonoFont,
-            FontWeight = FontWeights.SemiBold,
-            FontSize = fSz - 0.5,
-            LineHeight = rowH,
-            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
-            Foreground = accentBrush,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            MaxWidth = 260,
-            Margin = new Thickness(0, 0, 5, 0),
+            Text = iconGlyph,
+            FontFamily = new FontFamily(cfg.IconFontFamily),
+            FontSize = fsz,
+            Foreground = subBrush,
+            HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
-        TextOptions.SetTextFormattingMode(tickerTb, TextFormattingMode.Display);
-        Grid.SetColumn(tickerTb, 0);
-        g.Children.Add(tickerTb);
+        TextOptions.SetTextFormattingMode(tb, TextFormattingMode.Display);
 
-        var fill = CreateTuiDashFill('─', frameBrush, fSz, rowH);
-        fill.Opacity = 0.55;
-        Grid.SetColumn(fill, 1);
-        g.Children.Add(fill);
-
-        var strip = new Border
+        var b = new Border
         {
-            CornerRadius = new CornerRadius(0, 0, 2.5, 2.5),
-            Background = new SolidColorBrush(Color.FromArgb((byte)(pal.IsLight ? 16 : 22), hlColor.R, hlColor.G, hlColor.B)),
-            Padding = new Thickness(5, 1, 5, 1.5),
-            Child = g
+            Height = h,
+            MinWidth = h + 3,
+            Background = normalBg,
+            BorderBrush = hlBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(3.5),
+            Padding = new Thickness(3, 0, 3, 0),
+            Cursor = Cursors.Hand,
+            ToolTip = toolTip,
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true,
+            Child = tb
         };
+        b.MouseEnter += (_, _) => { b.Background = hoverBg; tb.Foreground = textBrush; };
+        b.MouseLeave += (_, _) => { b.Background = normalBg; tb.Foreground = subBrush; };
+        b.MouseLeftButtonDown += (_, e) => { e.Handled = true; };
+        b.MouseLeftButtonUp += (_, e) => { e.Handled = true; onClick?.Invoke(); };
+        return b;
+    }
 
-        var outer = new StackPanel { Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Stretch };
-        outer.Children.Add(CreateTuiHorizontalDivider(pal, m));
-        outer.Children.Add(strip);
-        return outer;
+    public static Grid CreateTuiTopLegendOverlay(
+        ThemePalette pal,
+        FlyoutMetrics m,
+        UIElement leftContent,
+        UIElement rightContent = null)
+    {
+        var g = new Grid
+        {
+            Background = null,
+            VerticalAlignment = VerticalAlignment.Top,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(8, 0, 8, 0),
+            SnapsToDevicePixels = true
+        };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        if (leftContent != null)
+        {
+            Grid.SetColumn(leftContent, 0);
+            g.Children.Add(leftContent);
+        }
+        if (rightContent != null)
+        {
+            Grid.SetColumn(rightContent, 2);
+            g.Children.Add(rightContent);
+        }
+        return g;
+    }
+
+    public static Border CreateTuiBottomLegendOverlay(
+        string defaultText,
+        ThemePalette pal,
+        FlyoutMetrics m,
+        out TextBlock tickerTb)
+    {
+        var pill = CreateTuiLegendPill(defaultText, pal, m, out tickerTb, bold: false, isBottom: true);
+        pill.VerticalAlignment = VerticalAlignment.Bottom;
+        pill.HorizontalAlignment = HorizontalAlignment.Left;
+        pill.Margin = new Thickness(8, 0, 8, 0);
+        return pill;
     }
 
     public static FlyoutMetrics GetFlyoutMetrics(ConfigService cfg)
@@ -577,7 +557,7 @@ internal static class W11WindowHelper
     /// Configures a borderless window to use native Windows 11 DWM hardware rounded corners, border, and shadow
     /// without WPF's slow AllowsTransparency/UpdateLayeredWindow or DropShadowEffect overhead.
     /// </summary>
-    public static void ConfigureDwmFlyoutChrome(Window w)
+    public static void ConfigureDwmFlyoutChrome(Window w, bool neonTui = false)
     {
         w.WindowStyle = WindowStyle.None;
         w.ResizeMode = ResizeMode.NoResize;
@@ -591,6 +571,12 @@ internal static class W11WindowHelper
         TextOptions.SetTextFormattingMode(w, TextFormattingMode.Display);
         TextOptions.SetTextRenderingMode(w, TextRenderingMode.ClearType);
         RenderOptions.SetBitmapScalingMode(w, BitmapScalingMode.HighQuality);
+
+        if (neonTui)
+        {
+            w.AllowsTransparency = true;
+            return;
+        }
 
         var chrome = new WindowChrome
         {
@@ -612,8 +598,20 @@ internal static class W11WindowHelper
         if (clickThrough) exAdd |= Native.WS_EX_TRANSPARENT;
         Native.AddExStyle(hwnd, exAdd);
 
+        if (neonTui)
+        {
+            w.Background = Brushes.Transparent;
+            var srcTui = HwndSource.FromHwnd(hwnd);
+            if (srcTui != null)
+            {
+                srcTui.CompositionTarget.BackgroundColor = Colors.Transparent;
+                srcTui.AddHook(NonActivatingWndProc);
+            }
+            return;
+        }
+
         w.Background = new SolidColorBrush(pal.BgBottom);
-        ApplyDwmFlyoutAttributes(hwnd, pal, smallCorners, neonTui);
+        ApplyDwmFlyoutAttributes(hwnd, pal, smallCorners, neonTui: false);
 
         var src = HwndSource.FromHwnd(hwnd);
         if (src != null)
@@ -625,13 +623,10 @@ internal static class W11WindowHelper
 
     public static void ApplyDwmFlyoutAttributes(IntPtr hwnd, ThemePalette pal, bool smallCorners = false, bool neonTui = false)
     {
-        if (hwnd == IntPtr.Zero || pal == null) return;
+        if (neonTui || hwnd == IntPtr.Zero || pal == null) return;
         Native.SetDwm(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, pal.IsLight ? 0 : 1);
-        Native.SetDwm(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, (smallCorners || neonTui) ? DWMWCP_ROUNDSMALL : DWMWCP_ROUND);
-        // Disable DWM's own thin border in Neon TUI so our 1.5px cyan card border acts as the actual outer window border
-        int bgrBorder = neonTui
-            ? unchecked((int)0xFFFFFFFE) // DWMWA_COLOR_NONE
-            : ((pal.Border.B << 16) | (pal.Border.G << 8) | pal.Border.R);
+        Native.SetDwm(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, smallCorners ? DWMWCP_ROUNDSMALL : DWMWCP_ROUND);
+        int bgrBorder = (pal.Border.B << 16) | (pal.Border.G << 8) | pal.Border.R;
         Native.SetDwm(hwnd, DWMWA_BORDER_COLOR, bgrBorder);
     }
 

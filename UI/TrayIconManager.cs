@@ -231,6 +231,7 @@ internal sealed class TrayIconManager : IDisposable
 internal sealed class TrayFlyoutWindow : Window
 {
     private readonly ConfigService _cfg;
+    private readonly Grid _frameRoot;
     private readonly Border _card;
     private bool _closing;
 
@@ -254,20 +255,22 @@ internal sealed class TrayFlyoutWindow : Window
         bool isTui = cfg.IsNeonTui;
         var uiFont = isTui ? W11WindowHelper.MonoFont : W11WindowHelper.TextFont;
 
-        W11WindowHelper.ConfigureDwmFlyoutChrome(this);
+        W11WindowHelper.ConfigureDwmFlyoutChrome(this, neonTui: isTui);
+        Background = isTui ? Brushes.Transparent : new SolidColorBrush(pal.BgBottom);
 
-        var outerStack = new StackPanel { Orientation = Orientation.Vertical, Width = Math.Max(220, m.MenuSingleMaxWidth + (isTui ? 8 : 0)) };
+        var outerStack = new StackPanel { Orientation = Orientation.Vertical, Width = Math.Max(220, m.MenuSingleMaxWidth + (isTui ? 10 : 0)) };
         var stack = new StackPanel { Orientation = Orientation.Vertical };
         var hoverBg = new LinearGradientBrush(pal.HoverTop, pal.HoverBottom, 90);
         var hoverBorder = new SolidColorBrush(isTui ? W11WindowHelper.GetTuiHighlightColor(pal) : pal.HoverBorder.Value);
 
         var statusPill = new Border
         {
-            CornerRadius = new CornerRadius(isTui ? 2.5 : 4),
-            Padding = new Thickness(6, 1, 6, 1),
+            CornerRadius = new CornerRadius(isTui ? 3.5 : 4),
+            Height = isTui ? W11WindowHelper.GetTuiLegendHeight(m) : double.NaN,
+            Padding = new Thickness(6, isTui ? 0 : 1, 6, isTui ? 0 : 1),
             Background = new SolidColorBrush(isEnabled
                 ? (pal.IsLight ? Color.FromRgb(0xDC, 0xFC, 0xE7) : Color.FromRgb(0x13, 0x2D, 0x24))
-                : pal.Surface),
+                : Color.FromRgb(pal.BgTop.R, pal.BgTop.G, pal.BgTop.B)),
             BorderBrush = new SolidColorBrush(isEnabled
                 ? (pal.IsLight ? Color.FromRgb(0x16, 0xA3, 0x4A) : Color.FromRgb(0x34, 0xD3, 0x99))
                 : pal.Separator),
@@ -277,19 +280,16 @@ internal sealed class TrayFlyoutWindow : Window
             {
                 Text = isEnabled ? "Active" : "Paused",
                 FontFamily = uiFont,
-                FontSize = m.CardSubFontSize,
+                FontSize = isTui ? Math.Max(9.0, m.MenuHeaderFontSize) : m.CardSubFontSize,
                 FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
                 Foreground = new SolidColorBrush(isEnabled
                     ? (pal.IsLight ? Color.FromRgb(0x16, 0xA3, 0x4A) : Color.FromRgb(0x34, 0xD3, 0x99))
                     : pal.SubText)
             }
         };
 
-        if (isTui)
-        {
-            outerStack.Children.Add(W11WindowHelper.CreateTuiHeaderBar(cfg, "SPARKBAR", pal, m, rightBadgeOrBtn: statusPill));
-        }
-        else
+        if (!isTui)
         {
             var hdr = new DockPanel { Margin = new Thickness(6, 2, 6, 4) };
             hdr.Children.Add(new TextBlock
@@ -406,9 +406,8 @@ internal sealed class TrayFlyoutWindow : Window
 
         if (isTui)
         {
-            stack.Margin = new Thickness(4, 2, 4, 2);
+            stack.Margin = new Thickness(5, 11, 5, 11);
             outerStack.Children.Add(stack);
-            outerStack.Children.Add(W11WindowHelper.CreateTuiFooterBar("Tray Menu", pal, m, out _));
         }
         else
         {
@@ -429,9 +428,26 @@ internal sealed class TrayFlyoutWindow : Window
             UseLayoutRounding = true,
             Child = inner
         };
-        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, new Thickness(padX, padY, padX, padY));
+        W11WindowHelper.ApplyNeonTuiCardChrome(_card, pal, isTui, new Thickness(padX, padY, padX, padY), legendHalfH: W11WindowHelper.GetTuiLegendHalf(m));
 
-        Content = _card;
+        _frameRoot = new Grid
+        {
+            Background = null,
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true
+        };
+        _frameRoot.Children.Add(_card);
+
+        if (isTui)
+        {
+            _frameRoot.Children.Add(W11WindowHelper.CreateTuiTopLegendOverlay(
+                pal, m,
+                W11WindowHelper.CreateTuiLegendPill("SPARKBAR", pal, m, out _, bold: true, isBottom: false),
+                statusPill));
+            _frameRoot.Children.Add(W11WindowHelper.CreateTuiBottomLegendOverlay("Tray Menu", pal, m, out _));
+        }
+
+        Content = _frameRoot;
     }
 
     public void ShowNearTray(int screenX, int screenY)
@@ -450,13 +466,13 @@ internal sealed class TrayFlyoutWindow : Window
         int py = Math.Max(work.Top + pad, Math.Min(screenY - physH - (int)Math.Round(8 * scale), work.Bottom - physH - pad));
         Native.MoveWindowPhysical(Hwnd, px, py);
 
-        W11WindowHelper.AnimateFlyoutIn(this, _card, _cfg.FadeInMs, W11WindowHelper.ShouldAnimate(_cfg));
+        W11WindowHelper.AnimateFlyoutIn(this, _frameRoot, _cfg.FadeInMs, W11WindowHelper.ShouldAnimate(_cfg));
     }
 
     public void Dismiss()
     {
         if (_closing) return;
         _closing = true;
-        W11WindowHelper.AnimateFlyoutOutAndClose(this, _card, _cfg.FadeOutMs, W11WindowHelper.ShouldAnimate(_cfg));
+        W11WindowHelper.AnimateFlyoutOutAndClose(this, _frameRoot, _cfg.FadeOutMs, W11WindowHelper.ShouldAnimate(_cfg));
     }
 }
