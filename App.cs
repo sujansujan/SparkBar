@@ -584,7 +584,7 @@ public sealed class App : Application
         _popupClipboardMode = false;
     }
 
-    public void ShowThemedMenu(IReadOnlyList<OptionMenuItem> items, string headerTitle, bool allowBack = true, bool useLastPopupRect = true)
+    public void ShowThemedMenu(IReadOnlyList<OptionMenuItem> items, string headerTitle, bool allowBack = true, bool useLastPopupRect = true, bool iconOnly = false)
     {
         _optionMenuWindow?.ShowItemsAt(
             items,
@@ -592,7 +592,8 @@ public sealed class App : Application
             _popX,
             _popY,
             useLastPopupRect ? _lastPopupRect : default,
-            (allowBack && !string.IsNullOrWhiteSpace(_selText)) ? ReturnToMainPopup : null);
+            (allowBack && !string.IsNullOrWhiteSpace(_selText)) ? ReturnToMainPopup : null,
+            iconOnly: iconOnly);
     }
 
     private void ReturnToMainPopup()
@@ -1190,7 +1191,7 @@ public sealed class App : Application
             });
         }
         if (items.Count > 0)
-            ShowThemedMenu(items, "SET DEFAULT & SEARCH");
+            ShowThemedMenu(items, "DEFAULT", iconOnly: true);
     }
 
     private void DoSearchMenu()
@@ -1233,7 +1234,7 @@ public sealed class App : Application
             OnClick = DoQuickDefaultSearchPicker
         });
 
-        ShowThemedMenu(items, "SEARCH WITH");
+        ShowThemedMenu(items, "SEARCH", iconOnly: true);
     }
 
     private void DoCaseMenu()
@@ -1302,7 +1303,7 @@ public sealed class App : Application
             items.Add(new OptionMenuItem { Label = "Bullet lines (•)",      Glyph = "•",  OnClick = () => ApplyTransform(prevWin, text, editable, SmartParser.BulletLines) });
         }
 
-        ShowThemedMenu(items, "TRANSFORM TEXT");
+        ShowThemedMenu(items, "CASE", iconOnly: true);
     }
 
     private void ShowColorVariantsMenu(System.Windows.Media.Color color)

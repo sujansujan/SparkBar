@@ -146,11 +146,13 @@ internal static class W11WindowHelper
         string toolTip,
         ThemePalette pal,
         FlyoutMetrics m,
-        Action onClick)
+        Action onClick,
+        bool isBottom = false)
     {
         double h = GetTuiLegendHeight(m);
         double fsz = Math.Max(8.5, m.MenuHeaderFontSize);
-        Color opaqueBg = Color.FromRgb(pal.BgTop.R, pal.BgTop.G, pal.BgTop.B);
+        Color baseC = isBottom ? pal.BgBottom : pal.BgTop;
+        Color opaqueBg = Color.FromRgb(baseC.R, baseC.G, baseC.B);
         var normalBg = new SolidColorBrush(opaqueBg);
         var hoverBg = new LinearGradientBrush(pal.HoverTop, pal.HoverBottom, 90);
         var hlBrush = new SolidColorBrush(GetTuiHighlightColor(pal));
@@ -232,6 +234,39 @@ internal static class W11WindowHelper
         pill.HorizontalAlignment = HorizontalAlignment.Left;
         pill.Margin = new Thickness(8, 0, 8, 0);
         return pill;
+    }
+
+    public static Grid CreateTuiBottomLegendBar(
+        string defaultText,
+        ThemePalette pal,
+        FlyoutMetrics m,
+        out TextBlock tickerTb,
+        UIElement rightContent = null)
+    {
+        var g = new Grid
+        {
+            Background = null,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(8, 0, 8, 0),
+            SnapsToDevicePixels = true
+        };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var pill = CreateTuiLegendPill(defaultText, pal, m, out tickerTb, bold: false, isBottom: true);
+        pill.HorizontalAlignment = HorizontalAlignment.Left;
+        if (rightContent != null)
+            pill.Margin = new Thickness(0, 0, 4, 0);
+        Grid.SetColumn(pill, 0);
+        g.Children.Add(pill);
+
+        if (rightContent != null)
+        {
+            Grid.SetColumn(rightContent, 1);
+            g.Children.Add(rightContent);
+        }
+        return g;
     }
 
     public static FlyoutMetrics GetFlyoutMetrics(ConfigService cfg)
