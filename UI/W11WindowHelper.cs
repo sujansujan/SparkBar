@@ -640,15 +640,16 @@ internal static class W11WindowHelper
         return IntPtr.Zero;
     }
 
-    public static void ApplyMicaWindowTheme(Window w, ThemePalette pal, bool useAcrylic = false)
+    public static void ApplyMicaWindowTheme(Window w, ThemePalette pal, bool useAcrylic = false, bool neonTui = false)
     {
         var helper = new WindowInteropHelper(w);
         IntPtr hwnd = helper.EnsureHandle();
 
         Native.SetDwm(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, pal.IsLight ? 0 : 1);
-        Native.SetDwm(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND);
+        Native.SetDwm(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, neonTui ? DWMWCP_ROUNDSMALL : DWMWCP_ROUND);
 
-        int bgrBorder = (pal.Border.B << 16) | (pal.Border.G << 8) | pal.Border.R;
+        Color borderC = neonTui ? GetTuiHighlightColor(pal) : pal.Border;
+        int bgrBorder = (borderC.B << 16) | (borderC.G << 8) | borderC.R;
         Native.SetDwm(hwnd, DWMWA_BORDER_COLOR, bgrBorder);
 
         var src = HwndSource.FromHwnd(hwnd);

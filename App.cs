@@ -240,6 +240,13 @@ public sealed class App : Application
             DismissAllMenus(instant: true);
             HideQr();
             CreateAndPreWarmFlyouts();
+            // Warm PopulateActions once while hidden so the very first popup after switching styles has 0ms cold-start delay
+            try
+            {
+                var warmActs = BuildActions("125 km", editable: true, clipboardMode: false);
+                _popupWindow.PopulateActions(warmActs);
+            }
+            catch { }
         }
     }
 

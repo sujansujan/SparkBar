@@ -95,14 +95,15 @@ internal sealed class SettingsWindow : Window
     private readonly ObservableCollection<EngineRowModel> _engineRows = new();
     private readonly ObservableCollection<string> _excludedRows = new();
 
-    private ComboBox _themeCombo, _sizeCombo, _styleCombo, _translateLangCombo;
-    private CheckBox _twoLayerChk, _startupChk, _animChk, _hintsChk, _kbdChk, _fsChk, _fbChk, _uncChk;
+    private ComboBox _themeCombo, _sizeCombo, _styleCombo, _layoutCombo, _translateLangCombo;
+    private CheckBox _startupChk, _animChk, _hintsChk, _kbdChk, _fsChk, _fbChk, _uncChk;
     private TextBox _timeoutEd, _dragEd;
     private ComboBox _defaultSearchCombo;
     private ListBox _actListBox, _engListBox, _exclListBox;
     private TextBlock _statusText;
     private string _selectedDefaultEngine;
     private bool _updatingDefaultCombo;
+    private int _activeTabIndex;
     private Action<int> _selectNavTab;
 
     public SettingsWindow(ConfigService cfg, Action onSettingsChanged)
@@ -127,7 +128,7 @@ internal sealed class SettingsWindow : Window
         PopulateModels();
         BuildLayout(pal);
 
-        SourceInitialized += (_, _) => W11WindowHelper.ApplyMicaWindowTheme(this, pal, useAcrylic: false);
+        SourceInitialized += (_, _) => W11WindowHelper.ApplyMicaWindowTheme(this, _cfg.Palette, useAcrylic: false, neonTui: _cfg.IsNeonTui);
         Closed += (_, _) => Native.TrimWorkingSet();
     }
 
@@ -179,8 +180,15 @@ internal sealed class SettingsWindow : Window
 
     private void BuildLayout(ThemePalette pal)
     {
+        bool isTui = _cfg.IsNeonTui;
         var textBrush = new SolidColorBrush(pal.Text);
         var subBrush = new SolidColorBrush(pal.SubText);
+        var tuiHlColor = W11WindowHelper.GetTuiHighlightColor(pal);
+        var tuiHlBrush = new SolidColorBrush(tuiHlColor);
+        var tuiAccBrush = new SolidColorBrush(W11WindowHelper.GetTuiAccentColor(pal));
+
+        Foreground = textBrush;
+        TextElement.SetForeground(this, textBrush);
 
         var root = new Grid { Margin = new Thickness(16, 12, 16, 14) };
         TextElement.SetForeground(root, textBrush);
@@ -199,15 +207,19 @@ internal sealed class SettingsWindow : Window
         {
             Width = 30,
             Height = 30,
-            CornerRadius = new CornerRadius(8),
-            Background = new LinearGradientBrush(Color.FromRgb(0x4F, 0x46, 0xE5), Color.FromRgb(0x06, 0xB6, 0xD4), 45),
+            CornerRadius = new CornerRadius(isTui ? 5 : 8),
+            Background = isTui
+                ? new SolidColorBrush(Color.FromRgb(pal.BgTop.R, pal.BgTop.G, pal.BgTop.B))
+                : new LinearGradientBrush(Color.FromRgb(0x4F, 0x46, 0xE5), Color.FromRgb(0x06, 0xB6, 0xD4), 45),
+            BorderBrush = isTui ? tuiHlBrush : Brushes.Transparent,
+            BorderThickness = new Thickness(isTui ? 1.5 : 0),
             Margin = new Thickness(0, 0, 10, 0),
             Child = new TextBlock
             {
                 Text = "✦",
                 FontWeight = FontWeights.Bold,
                 FontSize = 15,
-                Foreground = Brushes.White,
+                Foreground = isTui ? tuiAccBrush : Brushes.White,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
@@ -215,16 +227,17 @@ internal sealed class SettingsWindow : Window
         var brandTxt = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         brandTxt.Children.Add(new TextBlock
         {
-            Text = "SparkBar",
-            FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI"),
-            FontWeight = FontWeights.SemiBold,
+            Text = isTui ? "SPARKBAR" : "SparkBar",
+            FontFamily = isTui ? W11WindowHelper.MonoFont : new FontFamily("Segoe UI Variable Display, Segoe UI"),
+            FontWeight = FontWeights.Bold,
             FontSize = 14,
-            Foreground = textBrush
+            Foreground = isTui ? tuiAccBrush : textBrush
         });
         brandTxt.Children.Add(new TextBlock
         {
-            Text = "Windows 11 Edition",
-            FontSize = 11,
+            Text = isTui ? "Neon TUI Edition" : "Windows 11 Edition",
+            FontFamily = isTui ? W11WindowHelper.MonoFont : new FontFamily("Segoe UI Variable Text, Segoe UI"),
+            FontSize = isTui ? 10.5 : 11,
             Foreground = subBrush
         });
         brandRow.Children.Add(brandTxt);
@@ -247,13 +260,16 @@ internal sealed class SettingsWindow : Window
         var navButtons = new List<(Border Container, Border Indicator, int Index)>();
         void SelectNav(int idx)
         {
+            _activeTabIndex = Math.Max(0, Math.Min(idx, pages.Length - 1));
             for (int i = 0; i < pages.Length; i++)
-                pages[i].Visibility = i == idx ? Visibility.Visible : Visibility.Collapsed;
+                pages[i].Visibility = i == _activeTabIndex ? Visibility.Visible : Visibility.Collapsed;
             foreach (var (cont, ind, bIdx) in navButtons)
             {
-                bool active = bIdx == idx;
+                bool active = bIdx == _activeTabIndex;
                 cont.Background = active ? new SolidColorBrush(pal.Surface) : Brushes.Transparent;
-                cont.BorderBrush = active ? new SolidColorBrush(pal.Separator) : Brushes.Transparent;
+                cont.BorderBrush = active
+                    ? (isTui ? tuiHlBrush : new SolidColorBrush(pal.Separator))
+                    : Brushes.Transparent;
                 ind.Visibility = active ? Visibility.Visible : Visibility.Hidden;
             }
         }
@@ -276,7 +292,7 @@ internal sealed class SettingsWindow : Window
                 Width = 3,
                 Height = 16,
                 CornerRadius = new CornerRadius(1.5),
-                Background = new SolidColorBrush(pal.Accent),
+                Background = isTui ? tuiHlBrush : new SolidColorBrush(pal.Accent),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(2, 0, 0, 0),
@@ -293,14 +309,15 @@ internal sealed class SettingsWindow : Window
                 Text = navItems[i].Icon,
                 FontFamily = new FontFamily(_cfg.IconFontFamily),
                 FontSize = 14,
-                Foreground = textBrush,
+                Foreground = isTui ? tuiAccBrush : textBrush,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 10, 0)
             });
             sp.Children.Add(new TextBlock
             {
                 Text = navItems[i].Title,
-                FontSize = 13,
+                FontFamily = isTui ? W11WindowHelper.MonoFont : new FontFamily("Segoe UI Variable Text, Segoe UI"),
+                FontSize = isTui ? 12.5 : 13,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = textBrush,
                 VerticalAlignment = VerticalAlignment.Center
@@ -310,7 +327,7 @@ internal sealed class SettingsWindow : Window
 
             var navBorder = new Border
             {
-                CornerRadius = new CornerRadius(6),
+                CornerRadius = new CornerRadius(isTui ? 4.5 : 6),
                 BorderThickness = new Thickness(1),
                 Margin = new Thickness(0, 2, 0, 2),
                 Cursor = Cursors.Hand,
@@ -321,17 +338,19 @@ internal sealed class SettingsWindow : Window
             navStack.Children.Add(navBorder);
         }
 
-        SelectNav(0);
+        SelectNav(_activeTabIndex);
 
         Grid.SetColumn(navStack, 0);
         mainGrid.Children.Add(navStack);
 
         var contentCard = new Border
         {
-            CornerRadius = new CornerRadius(10),
+            CornerRadius = new CornerRadius(isTui ? 6 : 10),
             Background = new SolidColorBrush(Color.FromArgb((byte)(pal.IsLight ? 160 : 120), pal.Surface.R, pal.Surface.G, pal.Surface.B)),
-            BorderBrush = new SolidColorBrush(pal.Separator),
-            BorderThickness = new Thickness(1),
+            BorderBrush = isTui
+                ? new SolidColorBrush(Color.FromArgb((byte)(pal.IsLight ? 190 : 210), tuiHlColor.R, tuiHlColor.G, tuiHlColor.B))
+                : new SolidColorBrush(pal.Separator),
+            BorderThickness = new Thickness(isTui ? 1.2 : 1),
             Padding = new Thickness(18, 14, 18, 14),
             Child = pageHost
         };
@@ -341,15 +360,21 @@ internal sealed class SettingsWindow : Window
         Grid.SetRow(mainGrid, 0);
         root.Children.Add(mainGrid);
 
-        var footer = new DockPanel { Margin = new Thickness(4, 12, 0, 0) };
+        var footer = new Grid { Margin = new Thickness(4, 12, 0, 0) };
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
         _statusText = new TextBlock
         {
-            Text = "Shortcuts: Ctrl+Alt+P (popup)  ·  Ctrl+Alt+V (clip history)  ·  Ctrl+Alt+X (exclude app)",
-            FontSize = 12,
-            Foreground = subBrush,
+            Text = (isTui ? "✦ " : "") + "Shortcuts: Ctrl+Alt+P (popup)  ·  Ctrl+Alt+V (clip history)  ·  Ctrl+Alt+X (exclude app)",
+            FontFamily = isTui ? W11WindowHelper.MonoFont : new FontFamily("Segoe UI Variable Text, Segoe UI"),
+            FontSize = isTui ? 11 : 12,
+            Foreground = isTui ? tuiAccBrush : subBrush,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 0, 12, 0),
             VerticalAlignment = VerticalAlignment.Center
         };
-        DockPanel.SetDock(_statusText, Dock.Left);
+        Grid.SetColumn(_statusText, 0);
         footer.Children.Add(_statusText);
 
         var footerBtns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
@@ -373,7 +398,7 @@ internal sealed class SettingsWindow : Window
         footerBtns.Children.Add(applyBtn);
         footerBtns.Children.Add(saveCloseBtn);
         footerBtns.Children.Add(cancelBtn);
-        DockPanel.SetDock(footerBtns, Dock.Right);
+        Grid.SetColumn(footerBtns, 1);
         footer.Children.Add(footerBtns);
 
         Grid.SetRow(footer, 1);
@@ -386,7 +411,7 @@ internal sealed class SettingsWindow : Window
     {
         var textBrush = new SolidColorBrush(pal.Text);
         var sv = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        var sp = new StackPanel { Orientation = Orientation.Vertical };
+        var sp = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(0, 0, 8, 0) };
 
         sp.Children.Add(MakeSectionTitle("Appearance & Theme", pal));
 
@@ -395,11 +420,11 @@ internal sealed class SettingsWindow : Window
         {
             Text = "Color theme:",
             Foreground = textBrush,
-            Width = 95,
+            Width = 90,
             VerticalAlignment = VerticalAlignment.Center,
             FontSize = 13
         });
-        _themeCombo = new ComboBox { Width = 140, Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 0, 22, 0) };
+        _themeCombo = new ComboBox { Width = 128, Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 0, 14, 0) };
         foreach (string tm in new[] { "midnight", "slate", "auto", "dark", "light" })
             _themeCombo.Items.Add(tm);
         _themeCombo.SelectedItem = _cfg.ThemeMode;
@@ -409,11 +434,11 @@ internal sealed class SettingsWindow : Window
         {
             Text = "Popup bar size:",
             Foreground = textBrush,
-            Width = 105,
+            Width = 96,
             VerticalAlignment = VerticalAlignment.Center,
             FontSize = 13
         });
-        _sizeCombo = new ComboBox { Width = 130, Padding = new Thickness(8, 4, 8, 4) };
+        _sizeCombo = new ComboBox { Width = 136, Padding = new Thickness(8, 4, 8, 4) };
         foreach (string sz in new[] { "mini", "compact", "normal", "large" })
             _sizeCombo.Items.Add(sz);
         _sizeCombo.SelectedItem = _cfg.PopupSize;
@@ -425,15 +450,15 @@ internal sealed class SettingsWindow : Window
         {
             Text = "Translate to:",
             Foreground = textBrush,
-            Width = 95,
+            Width = 90,
             VerticalAlignment = VerticalAlignment.Center,
             FontSize = 13
         });
         _translateLangCombo = new ComboBox
         {
-            Width = 140,
+            Width = 128,
             Padding = new Thickness(8, 4, 8, 4),
-            Margin = new Thickness(0, 0, 22, 0),
+            Margin = new Thickness(0, 0, 14, 0),
             DisplayMemberPath = "Label",
             SelectedValuePath = "Code"
         };
@@ -450,22 +475,62 @@ internal sealed class SettingsWindow : Window
         {
             Text = "Popup style:",
             Foreground = textBrush,
-            Width = 105,
+            Width = 96,
             VerticalAlignment = VerticalAlignment.Center,
             FontSize = 13
         });
-        _styleCombo = new ComboBox { Width = 130, Padding = new Thickness(8, 4, 8, 4) };
-        foreach (string st in new[] { "neontui", "classic" })
-            _styleCombo.Items.Add(st);
-        _styleCombo.SelectedItem = _cfg.PopupStyle;
+        _styleCombo = new ComboBox
+        {
+            Width = 136,
+            Padding = new Thickness(8, 4, 8, 4),
+            DisplayMemberPath = "Label",
+            SelectedValuePath = "Value"
+        };
+        _styleCombo.ItemsSource = new[]
+        {
+            new { Value = "neontui", Label = "Neon TUI" },
+            new { Value = "classic", Label = "Windows 11 Classic" }
+        };
+        _styleCombo.SelectedValue = _cfg.PopupStyle;
         langRow.Children.Add(_styleCombo);
         sp.Children.Add(langRow);
 
-        _twoLayerChk = MakeCheck("Two-layer smart popup (relevant items on lower row near cursor, utilities on upper row)", _cfg.TwoLayerPopup, textBrush);
+        var layoutRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+        layoutRow.Children.Add(new TextBlock
+        {
+            Text = "Popup layout:",
+            Foreground = textBrush,
+            Width = 90,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 13
+        });
+        _layoutCombo = new ComboBox
+        {
+            Width = 148,
+            Padding = new Thickness(8, 4, 8, 4),
+            DisplayMemberPath = "Label",
+            SelectedValuePath = "Value"
+        };
+        _layoutCombo.ItemsSource = new[]
+        {
+            new { Value = true,  Label = "Two-layer stacked" },
+            new { Value = false, Label = "Single line" }
+        };
+        _layoutCombo.SelectedValue = _cfg.TwoLayerPopup;
+        layoutRow.Children.Add(_layoutCombo);
+        layoutRow.Children.Add(new TextBlock
+        {
+            Text = "Theme applies to both layouts",
+            Foreground = new SolidColorBrush(pal.SubText),
+            FontSize = 11.5,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(12, 0, 0, 0)
+        });
+        sp.Children.Add(layoutRow);
+
         _startupChk = MakeCheck("Launch SparkBar automatically when Windows starts", _cfg.IsRunAtStartupEnabled(), textBrush);
         _animChk  = MakeCheck("Smooth fade & slide animations", _cfg.AnimationsEnabled, textBrush);
         _hintsChk = MakeCheck("Show keyboard shortcut badges (1-9, A-Z) on toolbar", _cfg.ShowHintBadges, textBrush);
-        sp.Children.Add(_twoLayerChk);
         sp.Children.Add(_startupChk);
         sp.Children.Add(_animChk);
         sp.Children.Add(_hintsChk);
@@ -1019,11 +1084,13 @@ internal sealed class SettingsWindow : Window
     {
         _cfg.SetRunAtStartup(_startupChk.IsChecked == true);
         _cfg.ThemeMode = (_themeCombo.SelectedItem as string) ?? _cfg.ThemeMode;
-        _cfg.PopupStyle = (_styleCombo.SelectedItem as string) ?? _cfg.PopupStyle;
+        if (_styleCombo?.SelectedValue is string stVal && !string.IsNullOrEmpty(stVal))
+            _cfg.PopupStyle = stVal;
         _cfg.PopupSize = (_sizeCombo.SelectedItem as string) ?? _cfg.PopupSize;
         if (_translateLangCombo?.SelectedValue is string tl && !string.IsNullOrEmpty(tl))
             _cfg.TranslateTargetLang = tl;
-        _cfg.TwoLayerPopup = _twoLayerChk.IsChecked == true;
+        if (_layoutCombo?.SelectedValue is bool twoLayerVal)
+            _cfg.TwoLayerPopup = twoLayerVal;
         _cfg.AnimationsEnabled = _animChk.IsChecked == true;
         _cfg.ShowHintBadges = _hintsChk.IsChecked == true;
         _cfg.KeyboardTriggerEnabled = _kbdChk.IsChecked == true;
@@ -1070,13 +1137,17 @@ internal sealed class SettingsWindow : Window
         _cfg.SaveUserSettings();
         _cfg.SaveSearchEngines();
         _cfg.SaveExcludedApps();
-        _cfg.UpdatePalette();
+        var pal = _cfg.UpdatePalette();
         _onSettingsChanged?.Invoke();
 
         if (closeAfter)
             Close();
         else
-            _statusText.Text = "Settings applied and saved.";
+        {
+            BuildLayout(pal);
+            W11WindowHelper.ApplyMicaWindowTheme(this, pal, useAcrylic: false, neonTui: _cfg.IsNeonTui);
+            _statusText.Text = (_cfg.IsNeonTui ? "✦ " : "") + "Settings applied and saved.";
+        }
     }
 
     private void ExportBackup()
@@ -1109,9 +1180,12 @@ internal sealed class SettingsWindow : Window
                     File.Copy(src, Path.Combine(_cfg.BaseDir, file), true);
             }
             _cfg.ReloadAll();
+            var pal = _cfg.UpdatePalette();
             PopulateModels();
+            BuildLayout(pal);
+            W11WindowHelper.ApplyMicaWindowTheme(this, pal, useAcrylic: false, neonTui: _cfg.IsNeonTui);
             _onSettingsChanged?.Invoke();
-            _statusText.Text = "Backup imported and loaded.";
+            _statusText.Text = (_cfg.IsNeonTui ? "✦ " : "") + "Backup imported and loaded.";
         }
         catch (Exception ex) { _statusText.Text = "Import failed: " + ex.Message; }
     }
@@ -1130,20 +1204,24 @@ internal sealed class SettingsWindow : Window
         try { if (Directory.Exists(_cfg.FaviconCacheDir)) Directory.Delete(_cfg.FaviconCacheDir, true); } catch { }
 
         _cfg.ReloadAll();
+        var pal = _cfg.UpdatePalette();
         PopulateModels();
+        BuildLayout(pal);
+        W11WindowHelper.ApplyMicaWindowTheme(this, pal, useAcrylic: false, neonTui: _cfg.IsNeonTui);
         _onSettingsChanged?.Invoke();
-        _statusText.Text = "Factory defaults restored.";
+        _statusText.Text = (_cfg.IsNeonTui ? "✦ " : "") + "Factory defaults restored.";
     }
 
-    private static TextBlock MakeSectionTitle(string text, ThemePalette pal, double topMargin = 2)
+    private TextBlock MakeSectionTitle(string text, ThemePalette pal, double topMargin = 2)
     {
+        bool isTui = _cfg.IsNeonTui;
         return new TextBlock
         {
-            Text = text,
-            FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI"),
-            FontWeight = FontWeights.SemiBold,
-            FontSize = 14,
-            Foreground = new SolidColorBrush(pal.Text),
+            Text = isTui ? $"▸ {text.ToUpperInvariant()}" : text,
+            FontFamily = isTui ? W11WindowHelper.MonoFont : new FontFamily("Segoe UI Variable Display, Segoe UI"),
+            FontWeight = isTui ? FontWeights.Bold : FontWeights.SemiBold,
+            FontSize = isTui ? 12.5 : 14,
+            Foreground = new SolidColorBrush(isTui ? W11WindowHelper.GetTuiAccentColor(pal) : pal.Text),
             Margin = new Thickness(0, topMargin, 0, 5)
         };
     }

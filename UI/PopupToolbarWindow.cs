@@ -198,6 +198,12 @@ internal sealed class PopupToolbarWindow : Window
         _hoverTip.PreWarm();
     }
 
+    protected override void OnClosed(EventArgs e)
+    {
+        base.OnClosed(e);
+        try { _hoverTip?.Close(); } catch { }
+    }
+
     private double EstimateItemWidth(PopupActionItem act, FlyoutMetrics m)
     {
         bool useIcon = !act.ForceText && _cfg.GetActionDisplay(act.Tip) == "icon";

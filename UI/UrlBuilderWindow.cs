@@ -16,8 +16,10 @@ internal sealed class UrlBuilderWindow : Window
         Action<string, string, bool, bool> onSave)
     {
         var pal = cfg.UpdatePalette();
+        bool isTui = cfg.IsNeonTui;
         var textBrush = new SolidColorBrush(pal.Text);
         var subBrush = new SolidColorBrush(pal.SubText);
+        var tuiHlColor = W11WindowHelper.GetTuiHighlightColor(pal);
 
         Title = "Add Search Engine / Web Action";
         Width = 540;
@@ -40,11 +42,11 @@ internal sealed class UrlBuilderWindow : Window
 
         var header = new TextBlock
         {
-            Text = "Add Search Engine / Web Action from URL",
-            FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI"),
-            FontWeight = FontWeights.SemiBold,
-            FontSize = 16,
-            Foreground = textBrush,
+            Text = isTui ? "▸ ADD SEARCH ENGINE / WEB ACTION" : "Add Search Engine / Web Action from URL",
+            FontFamily = isTui ? W11WindowHelper.MonoFont : new FontFamily("Segoe UI Variable Display, Segoe UI"),
+            FontWeight = isTui ? FontWeights.Bold : FontWeights.SemiBold,
+            FontSize = isTui ? 14 : 16,
+            Foreground = isTui ? new SolidColorBrush(W11WindowHelper.GetTuiAccentColor(pal)) : textBrush,
             Margin = new Thickness(0, 0, 0, 4)
         };
         Grid.SetRow(header, 0);
@@ -62,10 +64,10 @@ internal sealed class UrlBuilderWindow : Window
 
         var formCard = new Border
         {
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = new CornerRadius(isTui ? 6 : 8),
             Background = new SolidColorBrush(pal.Surface),
-            BorderBrush = new SolidColorBrush(pal.Separator),
-            BorderThickness = new Thickness(1),
+            BorderBrush = isTui ? new SolidColorBrush(tuiHlColor) : new SolidColorBrush(pal.Separator),
+            BorderThickness = new Thickness(isTui ? 1.2 : 1),
             Padding = new Thickness(14, 12, 14, 12)
         };
 
@@ -203,7 +205,7 @@ internal sealed class UrlBuilderWindow : Window
 
         Content = root;
 
-        SourceInitialized += (_, _) => W11WindowHelper.ApplyMicaWindowTheme(this, pal, useAcrylic: false);
+        SourceInitialized += (_, _) => W11WindowHelper.ApplyMicaWindowTheme(this, pal, useAcrylic: false, neonTui: isTui);
         Closed += (_, _) => Native.TrimWorkingSet();
     }
 }
